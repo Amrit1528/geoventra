@@ -21,7 +21,7 @@ async function northstarToken(request) {
 
 test('1. login with invalid credentials returns 401', async ({ request }) => {
   const res = await request.post('http://localhost:4100/api/v1/auth/login', {
-    data: { email: 'admin@geoventra.in', password: 'wrong-password' },
+    body: { email: 'admin@geoventra.in', password: 'wrong-password' },
   });
   expect(res.status()).toBe(401);
 });

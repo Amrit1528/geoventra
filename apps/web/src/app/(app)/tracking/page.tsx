@@ -121,8 +121,9 @@ export default function TrackingPage(): ReactElement {
 
   return (
     <PageLayout
-      title="Live Tracking"
-      description="Real-time positions, status and connectivity across the authorised fleet."
+      title="Live Fleet"
+      description="Signature live tracking experience with searchable fleet panel, real-time positions, geofences and vehicle intelligence."
+      breadcrumb={[{ label: 'Geoventra', href: '/' }, { label: 'Overview' }, { label: 'Live Fleet' }]}
       actions={
         <div className="flex items-center gap-2">
           <span

@@ -55,7 +55,7 @@ export default function LoginPage(): ReactElement {
             GEOVENTRA
           </h1>
           <p className="mt-1 text-xs font-semibold uppercase tracking-[0.25em] text-[var(--text-muted)]">
-            Intel Tracking Mantra
+            Intelligent Tracking Mantra
           </p>
         </div>
 

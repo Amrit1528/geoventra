@@ -67,8 +67,9 @@ export default function EngineFleetPage(): ReactElement {
 
   return (
     <PageLayout
-      title="Engine Diagnostics"
-      description="Fleet-wide engine health: live telemetry status, trouble codes and health score per vehicle."
+      title="Engine Health"
+      description="Fleet-wide engine health: live telemetry status, trouble codes, sensor signals and health scores."
+      breadcrumb={[{ label: 'Geoventra', href: '/' }, { label: 'Vehicle Intelligence' }, { label: 'Engine Health' }]}
       actions={
         <form
           onSubmit={(event) => {

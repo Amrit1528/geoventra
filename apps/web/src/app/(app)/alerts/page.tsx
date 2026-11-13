@@ -113,8 +113,9 @@ export default function AlertsPage(): ReactElement {
 
   return (
     <PageLayout
-      title="Alerts"
-      description="Automated geofence alerts with acknowledgement and resolution workflows."
+      title="Alerts & Incidents"
+      description="Operational incident centre for geofence and fleet alerts with acknowledgement, resolution and notification management."
+      breadcrumb={[{ label: 'Geoventra', href: '/' }, { label: 'Overview' }, { label: 'Alerts & Incidents' }]}
       actions={
         <div className="flex items-center gap-2">
           <Select

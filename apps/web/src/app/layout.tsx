@@ -14,7 +14,7 @@ import './globals.css';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'Geoventra — Fleet Intelligence',
+  title: 'GEOVENTRA — Intelligent Tracking Mantra',
   description:
     'Enterprise fleet management and GPS tracking platform: live vehicle positions, engine diagnostics, fuel, TPMS, maintenance and geofencing.',
 };
@@ -36,9 +36,23 @@ export default function RootLayout({ children }: { children: ReactNode }): React
       'http://localhost:4000',
   };
 
+  const themeScript = `
+    (function() {
+      try {
+        var stored = localStorage.getItem('geoventra.theme');
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var theme = stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  `;
+
   return (
-    <html lang="en" data-theme="dark">
+    <html lang="en" data-theme="light" suppressHydrationWarning>
       <head>
+        <script id="geoventra-theme" dangerouslySetInnerHTML={{ __html: themeScript }} />
         <script
           id="geoventra-runtime-env"
           dangerouslySetInnerHTML={{ __html: `window.__ENV__=${JSON.stringify(runtimeEnv)};` }}

@@ -356,7 +356,8 @@ export default function GeofencesPage(): ReactElement {
   return (
     <PageLayout
       title="Geofences"
-      description="Circle and polygon zones with automatic entry/exit detection and alerting."
+      description="Circle and polygon zones with automatic entry/exit detection, dwell monitoring and alerting."
+      breadcrumb={[{ label: 'Geoventra', href: '/' }, { label: 'Fleet Operations' }, { label: 'Geofences' }]}
       actions={
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={() => startDraw('circle')}>

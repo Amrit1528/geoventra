@@ -1,15 +1,12 @@
-/**
- * GEOVENTRA — root NestJS module.
+/** GEOVENTRA — root NestJS module.
+ *  The application is deliberately layered:
  *
- * The application is deliberately layered:
- *
- *   InfrastructureModule — database pool, configuration, health checks
- *   AuthModule           — JWT issuance, refresh rotation, permission guards
- *   RealtimeModule       — socket.io gateways (tracking + engine diagnostics)
- *   EngineDiagnosticsModule — the Phase 5.1 engine feature set
- *   TrackingModule       — telemetry ingestion and live positions
+ *    InfrastructureModule — database pool, configuration, health checks
+ *    AuthModule           — JWT issuance, refresh rotation, permission guards
+ *    RealtimeModule       — socket.io gateways (tracking + engine diagnostics)
+ *    EngineDiagnosticsModule — the Phase 5.1 engine feature set
+ *    TrackingModule       — telemetry ingestion and live positions
  */
-
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { InfrastructureModule } from './common/infrastructure/infrastructure.module.js';
@@ -20,7 +17,10 @@ import { TrackingModule } from './tracking/tracking.module.js';
 import { GeofencesModule } from './geofences/geofences.module.js';
 import { TripsModule } from './trips/trips.module.js';
 import { HealthModule } from './health/health.module.js';
+import { AdminModule } from './admin/admin.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { TpmsModule } from './tpms/tpms.module.js';
+
 
 @Module({
   imports: [
@@ -37,7 +37,10 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     RealtimeModule,
     EngineDiagnosticsModule,
     NotificationsModule,
+    TpmsModule,
+
     HealthModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

@@ -63,8 +63,9 @@ export default function TripsPage(): ReactElement {
 
   return (
     <PageLayout
-      title="Trips"
-      description="Every journey detected from ignition on/off — distance, speed, idle time and events."
+      title="Trips & Routes"
+      description="Every journey detected from ignition and movement — distance, speed, idle time, events and playback."
+      breadcrumb={[{ label: 'Geoventra', href: '/' }, { label: 'Fleet Operations' }, { label: 'Trips & Routes' }]}
     >
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">

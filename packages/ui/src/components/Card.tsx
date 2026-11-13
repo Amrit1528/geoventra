@@ -28,7 +28,7 @@ export function Card({ className, ...props }: CardProps): ReactElement {
 export function CardHeader({ className, ...props }: CardSectionProps): ReactElement {
   return (
     <div
-      className={cn('flex flex-col gap-0.5 border-b border-[var(--border)] px-5 py-4', className)}
+      className={cn('flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-5 py-4', className)}
       {...props}
     />
   );
@@ -42,7 +42,7 @@ export interface CardTitleProps extends HTMLAttributes<HTMLHeadingElement> {
 export function CardTitle({ as: Component = 'h2', className, ...props }: CardTitleProps): ReactElement {
   return (
     <Component
-      className={cn('text-sm font-semibold uppercase tracking-wide text-[var(--text-secondary)]', className)}
+      className={cn('text-sm font-semibold tracking-tight text-[var(--text-primary)]', className)}
       {...props}
     />
   );

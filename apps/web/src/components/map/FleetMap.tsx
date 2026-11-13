@@ -65,8 +65,9 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return undefined;
 
+    const container = containerRef.current;
     const map = new maplibregl.Map({
-      container: containerRef.current,
+      container,
       style: MAP_STYLE,
       center: [78.5, 22.5],
       zoom: 4,
@@ -93,11 +94,22 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
         map.addLayer({ id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.72 } });
       }
       setMapReady(true);
+      // Ensure correct sizing after initial layout/paint.
+      setTimeout(() => map.resize(), 0);
     });
 
     mapRef.current = map;
 
+    const resize = () => {
+      try { map.resize(); } catch { /* map may be disposed during teardown */ }
+    };
+    window.addEventListener('resize', resize);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
+    observer?.observe(container);
+
     return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', resize);
       for (const marker of markersRef.current.values()) marker.remove();
       markersRef.current.clear();
       map.remove();

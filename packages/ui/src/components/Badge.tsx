@@ -13,19 +13,19 @@ export type BadgeVariant = 'neutral' | 'info' | 'success' | 'warning' | 'critica
 export type BadgeTone = BadgeVariant;
 
 const VARIANT_STYLES: Record<BadgeVariant, string> = {
-  neutral: 'bg-[var(--neutral-800)] text-[var(--neutral-200)] border-[var(--border-strong)]',
-  info: 'bg-blue-950/60 text-blue-300 border-blue-800/60',
-  success: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60',
-  warning: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
-  critical: 'bg-red-950/60 text-red-300 border-red-800/60',
+  neutral: 'bg-slate-100/90 text-slate-700 border-slate-200 [html[data-theme="dark"]_&]:bg-slate-800/70 [html[data-theme="dark"]_&]:text-slate-200 [html[data-theme="dark"]_&]:border-slate-700',
+  info: 'bg-blue-50 text-blue-700 border-blue-200 [html[data-theme="dark"]_&]:bg-blue-950/40 [html[data-theme="dark"]_&]:text-blue-300 [html[data-theme="dark"]_&]:border-blue-800/60',
+  success: 'bg-emerald-50 text-emerald-700 border-emerald-200 [html[data-theme="dark"]_&]:bg-emerald-950/40 [html[data-theme="dark"]_&]:text-emerald-300 [html[data-theme="dark"]_&]:border-emerald-800/60',
+  warning: 'bg-amber-50 text-amber-800 border-amber-200 [html[data-theme="dark"]_&]:bg-amber-950/40 [html[data-theme="dark"]_&]:text-amber-300 [html[data-theme="dark"]_&]:border-amber-800/60',
+  critical: 'bg-red-50 text-red-700 border-red-200 [html[data-theme="dark"]_&]:bg-red-950/40 [html[data-theme="dark"]_&]:text-red-300 [html[data-theme="dark"]_&]:border-red-800/60',
 };
 
 const DOT_STYLES: Record<BadgeVariant, string> = {
-  neutral: 'bg-[var(--neutral-400)]',
-  info: 'bg-blue-400',
-  success: 'bg-emerald-400',
-  warning: 'bg-amber-400',
-  critical: 'bg-red-400',
+  neutral: 'bg-slate-400',
+  info: 'bg-blue-500',
+  success: 'bg-emerald-500',
+  warning: 'bg-amber-500',
+  critical: 'bg-red-500',
 };
 
 export type BadgeSize = 'sm' | 'md';
