@@ -2,7 +2,7 @@
  * GEOVENTRA — global exception filter.
  *
  * Normalises every error into the shared `ApiErrorBody` envelope so the web client has a
- * single error shape to handle.
+ * single error shape to handle. Zod validation failures surface as a 400 with the issues.
  */
 
 import {
@@ -13,6 +13,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { ZodError } from 'zod';
 import type { Request, Response } from 'express';
 import type { ApiErrorBody } from '@geoventra/contracts';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard.js';
@@ -26,16 +27,25 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = http.getRequest<AuthenticatedRequest & Request>();
     const response = http.getResponse<Response>();
 
-    const status =
+    let status: number =
       exception instanceof HttpException
         ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+        : exception instanceof ZodError
+          ? HttpStatus.BAD_REQUEST
+          : HttpStatus.INTERNAL_SERVER_ERROR;
 
     let error = 'Internal Server Error';
     let message = 'An unexpected error occurred';
     let details: unknown;
 
-    if (exception instanceof HttpException) {
+    if (exception instanceof ZodError) {
+      error = 'Bad Request';
+      message = exception.issues[0]?.message ?? 'Validation failed';
+      details = exception.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      }));
+    } else if (exception instanceof HttpException) {
       const payload = exception.getResponse();
       if (typeof payload === 'string') {
         message = payload;

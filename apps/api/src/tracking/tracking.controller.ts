@@ -1,17 +1,32 @@
 /**
  * GEOVENTRA — tracking controller.
  *
- * Exposes the live tracking surface: the fleet snapshot, a vehicle trail and the telemetry
+ * Exposes the live tracking surface: the fleet snapshot, a vehicle detail, a vehicle
+ * trail, the historical tracking windows with stats + CSV export and the telemetry
  * ingestion endpoints used by gateways and the simulator.
+ *
+ *   GET /api/v1/tracking/snapshot
+ *   GET /api/v1/tracking/vehicles/:vehicleId
+ *   GET /api/v1/tracking/vehicles/:vehicleId/trail
+ *   GET /api/v1/tracking/vehicles/:vehicleId/history
+ *   GET /api/v1/tracking/vehicles/:vehicleId/history/stats
+ *   GET /api/v1/tracking/vehicles/:vehicleId/history/export.csv
+ *   POST /api/v1/tracking/ingest
+ *   POST /api/v1/tracking/ingest/http
  */
 
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { z } from 'zod';
 import {
   normalizeGpsFrame,
   type NormalizedGpsEvent,
   type TrackingSnapshot,
   type TrackPoint,
+  type VehicleHistoryPage,
+  type VehicleHistoryPoint,
+  type VehicleTrackingDetail,
+  type VehicleTrackingStats,
 } from '@geoventra/contracts';
 import { TrackingService, type IngestResult } from './tracking.service.js';
 import { CurrentUser } from '../common/auth/current-user.decorator.js';
@@ -28,6 +43,15 @@ const trailQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(5000).optional(),
 });
 
+const historyQuerySchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  status: z.enum(['moving', 'idle', 'stopped']).optional(),
+  ignition: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(5000).optional(),
+});
+
 @Controller('tracking')
 export class TrackingController {
   constructor(private readonly trackingService: TrackingService) {}
@@ -37,6 +61,13 @@ export class TrackingController {
   @RequirePermissions('tracking.read')
   async snapshot(@CurrentUser() user: AuthenticatedUser): Promise<TrackingSnapshot> {
     return this.trackingService.snapshot(user.organisationId);
+  }
+
+  /** Full tracking detail for one vehicle (identity, live position, device, driver, alerts). */
+  @Get('vehicles/:vehicleId')
+  @RequirePermissions('tracking.read')
+  async detail(@CurrentUser() user: AuthenticatedUser, @Param('vehicleId') vehicleId: string): Promise<VehicleTrackingDetail> {
+    return this.trackingService.getVehicleDetail(user.organisationId, vehicleId);
   }
 
   /** The recent trail for a vehicle. */
@@ -54,6 +85,46 @@ export class TrackingController {
       parsed.limit ?? 500,
     );
     return { data };
+  }
+
+  /** Historical tracking for a vehicle, oldest-first, with filters and pagination. */
+  @Get('vehicles/:vehicleId/history')
+  @RequirePermissions('tracking.read')
+  async history(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('vehicleId') vehicleId: string,
+    @Query() query: unknown,
+  ): Promise<VehicleHistoryPage> {
+    const parsed = historyQuerySchema.parse(query ?? {});
+    return this.trackingService.history(user.organisationId, vehicleId, parsed);
+  }
+
+  /** Calculated tracking statistics (distance, speed, movement, gaps) for a vehicle window. */
+  @Get('vehicles/:vehicleId/history/stats')
+  @RequirePermissions('tracking.read')
+  async historyStats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('vehicleId') vehicleId: string,
+    @Query() query: unknown,
+  ): Promise<VehicleTrackingStats> {
+    const parsed = historyQuerySchema.parse(query ?? {});
+    return this.trackingService.historyStats(user.organisationId, vehicleId, parsed);
+  }
+
+  /** CSV export of a vehicle's tracking history, honouring the same filters. */
+  @Get('vehicles/:vehicleId/history/export.csv')
+  @RequirePermissions('tracking.export')
+  async exportCsv(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('vehicleId') vehicleId: string,
+    @Query() query: unknown,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<string> {
+    const parsed = historyQuerySchema.parse(query ?? {});
+    const csv = await this.trackingService.exportCsv(user.organisationId, vehicleId, parsed);
+    res.setHeader('content-type', 'text/csv; charset=utf-8');
+    res.setHeader('content-disposition', 'attachment; filename="geoventra-tracking-history.csv"');
+    return csv;
   }
 
   /** Telemetry ingestion — normalized events from a gateway or the simulator. */

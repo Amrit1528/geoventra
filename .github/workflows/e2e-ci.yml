@@ -1,0 +1,283 @@
+name: E2E CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: write
+  issues: write
+
+env:
+  NODE_VERSION: 20.11.0
+  PLAYWRIGHT_BROWSERS: 0
+
+jobs:
+  # ── 1. Install dependencies ────────────────────────────────────────────────
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+  # ── 2. Validate workspace (typecheck) ────────────────────────────────────
+  typecheck:
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Typecheck workspace
+        run: pnpm typecheck
+
+  # ── 3. Run database migrations ───────────────────────────────────────────
+  db-migrate:
+    runs-on: ubuntu-latest
+    needs: install
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: geoventra
+          POSTGRES_PASSWORD: geoventra
+          POSTGRES_DB: geoventra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://geoventra:geoventra@localhost:5432/geoventra_test
+
+  # ── 4. Run unit tests ────────────────────────────────────────────────────
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm test
+
+  # ── 5. Run integration tests ─────────────────────────────────────────────
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Run integration tests
+        run: pnpm test -- --run
+
+  # ── 6. Production build ──────────────────────────────────────────────────
+  production-build:
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Run production build
+        run: pnpm build
+
+  # ── 7. Lint ──────────────────────────────────────────────────────────────
+  lint:
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+  # ── 8. Start test services ────────────────────────────────────────────────
+  start-test-services:
+    runs-on: ubuntu-latest
+    needs: [install, db-migrate]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: geoventra
+          POSTGRES_PASSWORD: geoventra
+          POSTGRES_DB: geoventra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Build API
+        run: pnpm --filter @geoventra/api build
+
+      - name: Start API and web servers
+        run: |
+          (pnpm --filter @geoventra/api start &)
+          (pnpm --filter @geoventra/web start -p 3100 &)
+          # Wait for services to be ready
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4100/api/v1/health >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:3100 >/dev/null
+        env:
+          DATABASE_URL: postgresql://geoventra:geoventra@localhost:5432/geoventra_test
+          JWT_ACCESS_SECRET: test-secret
+          JWT_ACCESS_TTL: 15m
+
+  # ── 9. Run Playwright E2E ─────────────────────────────────────────────────
+  playwright-e2e:
+    runs-on: ubuntu-latest
+    needs: [start-test-services]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: corepack enable && pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright E2E tests
+        run: pnpm exec playwright test --reporter=line
+        env:
+          DATABASE_URL: postgresql://geoventra:geoventra@localhost:5432/geoventra_test
+          JWT_ACCESS_SECRET: test-secret
+          JWT_ACCESS_TTL: 15m
+
+      - name: Upload Playwright test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload Playwright video/screenhots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: test-results/
+          retention-days: 7
+
+  # ── 10. Publish test reports ─────────────────────────────────────────────
+  publish-reports:
+    runs-on: ubuntu-latest
+    needs: playwright-e2e
+    if: always()
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download Playwright report
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+      - name: Publish test summary
+        if: always()
+        run: |
+          echo "## E2E Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "*Pipeline completed with status:* ${{ needs.playwright-e2e.result }}" >> $GITHUB_STEP_SUMMARY

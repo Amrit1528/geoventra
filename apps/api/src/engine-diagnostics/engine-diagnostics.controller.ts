@@ -235,11 +235,33 @@ export class EngineDiagnosticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: unknown,
   ): Promise<{ data: EngineHealthAlert[]; meta: ReturnType<typeof paginate>['meta'] }> {
-    const parsed = listQuerySchema.parse(query ?? {});
+    const parsed = z
+      .object({
+        vehicleId: z.string().uuid().optional(),
+        severity: z.enum(['info', 'warning', 'critical']).optional(),
+        status: z.enum(['open', 'resolved']).optional(),
+        resolved: z
+          .enum(['true', 'false', 'open', 'resolved'])
+          .transform((value) => value === 'true' || value === 'resolved')
+          .optional(),
+        limit: z.coerce.number().int().min(1).max(5000).optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        pageSize: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .strict()
+      .parse(query ?? {});
+    const resolved =
+      parsed.resolved !== undefined
+        ? parsed.resolved
+        : parsed.status === 'open'
+          ? false
+          : parsed.status === 'resolved'
+            ? true
+            : undefined;
     const rows = await this.engineService.listAlerts(user.organisationId, {
       vehicleId: parsed.vehicleId,
       severity: parsed.severity,
-      resolved: parsed.resolved,
+      resolved,
     });
     return paginate(rows, { page: parsed.page, pageSize: parsed.pageSize });
   }

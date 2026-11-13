@@ -9,9 +9,12 @@
 'use client';
 
 import type { ReactElement } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { X, Gauge, Zap, Navigation, MapPin, Clock, Satellite, BatteryMedium, Radio, Route, User } from 'lucide-react';
 import { Badge, badgeVariantForSeverity, Button, cn, Card, CardContent } from '@geoventra/ui';
 import type { LivePosition } from '@geoventra/contracts';
+import { fetchTrips } from '@/lib/track-api';
 import { formatDateTime, formatRelativeTime, formatMetricValue, formatSpeedKph } from '@/lib/format';
 
 export interface VehicleDrawerProps {
@@ -25,6 +28,15 @@ export function VehicleDrawer({ vehicle, onClose, className }: VehicleDrawerProp
 
   const offline = vehicle.status === 'offline' || vehicle.ageSeconds > 900;
   const heading = Number.isFinite(vehicle.heading) ? vehicle.heading : 0;
+
+  // ── Trip history ─────────────────────────────────────────────────────────────
+  const tripsQuery = useQuery({
+    queryKey: ['trips', 'vehicle', vehicle.vehicleId],
+    queryFn: () => fetchTrips({ vehicleId: vehicle.vehicleId }, undefined),
+    enabled: Boolean(vehicle.vehicleId),
+  });
+  const trips = tripsQuery.data?.data ?? [];
+  const tripsMeta = tripsQuery.data?.meta;
 
   return (
     <aside
@@ -132,10 +144,18 @@ export function VehicleDrawer({ vehicle, onClose, className }: VehicleDrawerProp
         </Card>
       </div>
 
-      <footer className="border-t border-[var(--border)] px-5 py-3">
+      <footer className="flex items-center justify-between gap-3 border-t border-[var(--border)] px-5 py-3">
         <Button variant="secondary" size="sm" className="w-full" onClick={onClose}>
           Close
         </Button>
+        <Link
+          href={`/trips?vehicleId=${encodeURIComponent(vehicle.vehicleId ?? '')}`}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--primary-500)] transition-colors hover:underline"
+          aria-label={`View trip history for ${vehicle.registrationNumber}`}
+        >
+          <Route size={13} aria-hidden="true" />
+          {tripsMeta?.total ? `Trip history · ${tripsMeta.total}` : 'Trip history'}
+        </Link>
       </footer>
     </aside>
   );

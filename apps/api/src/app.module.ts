@@ -20,6 +20,7 @@ import { TrackingModule } from './tracking/tracking.module.js';
 import { GeofencesModule } from './geofences/geofences.module.js';
 import { TripsModule } from './trips/trips.module.js';
 import { HealthModule } from './health/health.module.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { HealthModule } from './health/health.module.js';
     TrackingModule,
     RealtimeModule,
     EngineDiagnosticsModule,
+    NotificationsModule,
     HealthModule,
   ],
 })

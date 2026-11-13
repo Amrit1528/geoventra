@@ -223,13 +223,6 @@ export default function TrackingPage(): ReactElement {
           </div>
         )}
       </div>
-
-      {/* Selected vehicle summary chip for mobile */}
-      {selected ? (
-        <div className="lg:hidden">
-          <VehicleDrawer vehicle={selected} onClose={() => setSelectedId(null)} />
-        </div>
-      ) : null}
     </PageLayout>
   );
 }

@@ -8,7 +8,7 @@
 SET search_path TO geoventra, public;
 
 -- ── 1. Create Trips Table ─────────────────────────────────────────────────────
-CREATE TABLE geoventra.trips (
+CREATE TABLE IF NOT EXISTS geoventra.trips (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organisation_id UUID NOT NULL REFERENCES geoventra.organisations(id),
     vehicle_id UUID NOT NULL REFERENCES geoventra.vehicles(id),
@@ -58,8 +58,8 @@ CREATE TABLE geoventra.trips (
 );
 
 -- Index for time-series queries (listing/playback)
-CREATE INDEX idx_trips_vehicle_time ON geoventra.trips (vehicle_id, started_at DESC);
-CREATE INDEX idx_trips_org_time ON geoventra.trips (organisation_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_trips_vehicle_time ON geoventra.trips (vehicle_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_trips_org_time ON geoventra.trips (organisation_id, started_at DESC);
 
 -- ── 2. Update Existing Tracking History (Optional - For cross-reference) ─────
 -- No direct changes to gps_positions are required, but we must ensure the new 'trips'

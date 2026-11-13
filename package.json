@@ -17,6 +17,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:e2e": "playwright test",
+    "echeck": "turbo run typecheck lint test build && playwright test",
+    "test:e2e": "playwright test",
     "db:setup": "pnpm --filter @geoventra/api db:setup",
     "db:migrate": "pnpm --filter @geoventra/api db:migrate",
     "db:seed": "pnpm --filter @geoventra/api db:seed",

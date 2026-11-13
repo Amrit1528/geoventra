@@ -80,8 +80,10 @@ export function getTrackingSocket(accessToken: string | null): Socket {
 export function connectTrackingSocket(accessToken: string | null): Socket {
   const instance = getTrackingSocket(accessToken);
   if (!instance.connected) {
+    // Kick off the connection first, then announce "connecting" — the async
+    // 'connect' event flips the status to live/reconnected afterwards.
     instance.connect();
-    setStatus(status === 'idle' ? 'connecting' : status);
+    setStatus('connecting');
   }
   return instance;
 }

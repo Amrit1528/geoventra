@@ -32,10 +32,21 @@ lifecycle management, freeze-frame records, historical diagnostics, a diagnostic
 engine health charts, backend/frontend integration and automated tests (51 API tests including
 integration coverage, 15 web tests, 26 UI tests).
 
+**P0 phases (live map, trips, geofences) are now implemented end-to-end** as of this update:
+a MapLibre GL fleet map with clustering, fit-to-fleet, websocket live updates and polling
+fallback; search/status/fleet filters; a slide-in vehicle drawer with live telemetry and tracker
+connectivity; trip listing, detail, route playback and CSV export; and full geofence management
+(create/edit/delete, circle and polygon, map-based drawing, vehicle assignment, entry/exit
+detection, event history and de-duplicated alerts). Real Playwright E2E: **11 passing scenarios**
+(login → map → markers → drawer → live ingest update → offline rendering → trips → playback →
+geofence creation → geofence alert → org authorization). `pnpm echeck` is green end-to-end
+(typecheck + lint + unit/integration + builds + E2E).
+
 **Most of the wider product is still missing.** The original application (as referenced by
 `.local/openapi.json` — 64 routes in 18 modules) existed outside this repository. The modules
-that have been rebuilt so far are: `auth`, `health`, `tracking`, `engine-diagnostics`. The
-remaining ~14 modules are absent — see the feature matrix below.
+that have been rebuilt so far are: `auth`, `health`, `tracking`, `trips`, `geofences`,
+`engine-diagnostics` — 40 of 64 routes (62.5 %). The remaining ~10 modules are absent — see the
+feature matrix below.
 
 ---
 
@@ -91,8 +102,8 @@ Legend: `●` implemented & working · `◐` partial / scaffolded · `—` missi
 | **RBAC / permissions** | ● | JWT guard + `@RequirePermissions` + role→permission tables; `engine.*` permissions added | UI reads the same permission set via `/auth/me` | `20261119_engine_diagnostics_phase51.sql` seeds `engine.read`, `engine.write`, `engine.ingest` + role grants | covered indirectly via /auth/me integration test |
 | **JWT refresh rotation** | ● | sha-256 hashed refresh tokens, single-flight refresh on the client, logout revokes | session store: single-flight refresh, persisted in `localStorage` | `refresh_tokens` | unit (via integration) |
 | **Health probes** | ● | `/health`, `/health/live`, `/health/ready` | n/a | n/a | via test suite |
-| **Live tracking (snapshot/trail/ingest)** | ● | `tracking` module: snapshot, per-vehicle trail, HTTP ingest (normalized + raw frame) | `/tracking` placeholder only | `gps_positions`, `vehicle_live_status` | integration: ingest + snapshot assertions |
-| **Live map UI** | — | API ready (`/tracking/snapshot`, `/tracking/vehicles/:id/trail`) | **missing** | ✓ | — |
+| **Live tracking (snapshot/trail/ingest)** | ● | `tracking` module: snapshot (positions + geofences + serverTime), per-vehicle trail, HTTP ingest (normalized + raw frame) | `/tracking` — full page: MapLibre map, clustering, live WS, filters, drawer | `gps_positions`, `vehicle_live_status` | integration: ingest + snapshot assertions; 11 E2E |
+| **Live map UI** | ● | API ready + `tracking:positions` WS push on ingest | MapLibre + supercluster + drawer | ✓ | 11 E2E map scenarios |
 | **GPS simulator** | ● | service builds and unit tests pass | simulator control API not wired into the web app | ✓ via dev DB (GVT-100000..119) | 10 tests |
 | **Engine diagnostics — realtime telemetry** | ● | `/engine/vehicles/:id/telemetry{,/latest}`, socket.io `engine.telemetry` on vehicle rooms | `/engine/[vehicleId]` live tiles + connection badge | `engine_telemetry_readings` | 3 chart/tile contract tests + ingest integration |
 | **Engine diagnostics — DTC lifecycle** | ● | state machine `detect→active→acknowledged→cleared→reoccurred`, `/engine/dtcs/:id/{acknowledge,resolve}` | `/engine/[vehicleId]` DTC table with actions | `engine_dtcs` (unique per org+vehicle+code), `engine_dtc_events` | 12 lifecycle unit tests + 3 integration assertions |
@@ -104,9 +115,9 @@ Legend: `●` implemented & working · `◐` partial / scaffolded · `—` missi
 | **Devices & assignments** | ◐ | read via engine fleet listing (joins `device_assignments`) | `/devices` placeholder only | `devices`, `device_assignments`, `engine_devices` | — |
 | **Fuel monitoring** | — | **no API** (tables exist: `fuel_sensors`, `fuel_readings`, `fuel_anomaly_alerts`, `refuelling_events`, `fuel_ingest`) | — | ✓ (schema, incl. provenance columns) | — |
 | **TPMS** | — | **no API** (tables exist: `tpms_sensors`, `tpms_readings`, `tpms_sensor_events`, `tpms_vehicle_config`) | — | ✓ | — |
-| **Trips & trip events** | — | **no API** (tables exist: `trips`, `trip_events`, `trip_stops`, `stops`, `stop_events`) | `/trips` placeholder | ✓ | — |
-| **Geofences** | — | **no API** (tables exist: `geofences`, `geofence_vehicles`, `geofence_events`, `vehicle_geofence_state`) | `/geofences` placeholder | ✓ (PostGIS) | — |
-| **Alerts (general)** | ◐ | engine-health alerts only | `/alerts` placeholder | `alerts` table ✓ | — |
+| **Trips & trip events** | ● | `trips` module: list (filter/paginate/search), `:id`, `:id/playback` (track + events), `export.csv`; auto-detection from ignition on/off + odometer | `/trips` list, `/trips/[id]` detail with route + playback + stats | `trips`, `trip_events`, `trip_stops`, `stops` | 1 integration (list+export wired in suite) + E2E 7,8 |
+| **Geofences** | ● | `geofences` module: CRUD, circle/polygon, vehicle assignment, events, **entry/exit detection on ingest**, de-duplicated alerts | `/geofences` — map drawing (circle/polygon), fleet scope picker, events feed | `geofences`, `geofence_vehicles`, `geofence_events`, `vehicle_geofence_state` (+ partial unique index on `alerts.dedupe_key`) | E2E 9,10 |
+| **Alerts (general)** | ◐ | engine-health alerts + geofence alerts (deduped); no general inbox/ack API yet | `/alerts` placeholder | `alerts` table ✓ | — |
 | **Maintenance intelligence (Phase 6)** | — | **no API** (tables exist: `vehicle_health_scores`, `maintenance_rules`, `maintenance_predictions`, `maintenance_providers`, `maintenance_work_orders`, `maintenance_cost_records`) | `/maintenance` placeholder | ✓ | — |
 | **Device integration (Phase 7.1)** | — | **no API** (tables exist: `device_manufacturers`, `device_models`, `device_field_mappings`, `device_connection_status`, `device_ingestion_audit`, …) | `/devices` placeholder | ✓ | — |
 | **Dashboard** | ◐ | engine KPIs only (`/engine/vehicles` aggregate) — no `/dashboard/summary`, `/dashboard/activity-feed` | `/` (engine KPIs) — no full dashboard | reads existing tables | — |
@@ -114,12 +125,12 @@ Legend: `●` implemented & working · `◐` partial / scaffolded · `—` missi
 | **Intelligence/AI overview** | — | **no API** (`/intelligence/overview`) — heuristic insights never existed in this repo | — | — | — |
 | **Administration (users/roles/groups/api-keys/audit)** | — | **no API** (~20 admin routes) | `/admin` placeholder | tables exist | — |
 | **Simulator control via web** | — | `/simulator/*` endpoints not implemented | no UI | — | — |
-| **E2E tests** | — | — | `tests/e2e/*.spec.cjs` all zero bytes | — | not run |
+| **E2E tests** | ● | — | `tests/e2e/e2e.spec.cjs` — 11 scenarios on `geoventra_test` (deterministic fixture) | — | **11 passing** |
 | **CI (GitHub Actions/lint/build/test)** | — | no `.github/workflows` | — | — | — |
 | **Docker runtime (postgres + mosquitto compose)** | ◐ | mosquitto + certs committed; no compose for the DB | — | — | — |
 | **MQTT/TCP ingest gateways** | — | no gateway process (mosquitto config present; `mqtt` optional dep in API only) | — | `source='mqtt'` supported in schema | — |
 
-**Implemented-route coverage:** 27 of the original 64 routes (42 %). Everything listed under
+**Implemented-route coverage:** 40 of the original 64 routes (62.5 %). Everything listed under
 **missing** is genuinely absent — rebuilding those modules is the backlog, not a matter of
 flipping a switch.
 
@@ -252,3 +263,47 @@ E2E (`playwright.config.cjs`, `tests/e2e/*.cjs`) remain **zero bytes** and were 
 - No dependencies were added to `pnpm-lock.yaml` except `@vitejs/plugin-react` (already published
   in the lockfile as a dependency of the web app) for `@geoventra/ui` tests. The two empty
   manifests for `shared-types`/`telemetry-processor` were reconstructed with `workspace:*` links.
+
+---
+
+## 12. P0 update — Live Map, Trips and Geofences (2026-11-13, later)
+
+### APIs implemented (new since the last revision)
+
+- `GET /api/v1/tracking/snapshot` — now returns `{ positions, geofences, serverTime }` (added active geofences to the payload; 16 ms warm).
+- `GET /api/v1/tracking/vehicles/:vehicleId/trail` — unchanged.
+- `GET /api/v1/trips` — list w/ filters (vehicle, status, from/to, search) + pagination.
+- `GET /api/v1/trips/:id`, `GET /api/v1/trips/:id/playback`, `GET /api/v1/trips/export.csv`.
+- Trips auto-open on ignition ON and close on ignition OFF during ingest; distance = odometer delta at trip start; idle time only counts while ignition is on and speed is 0; `max_speed` accumulated; `avg_speed` capped at 400 km/h to fit `numeric(6,2)`.
+- `GET/POST/PATCH/DELETE /api/v1/geofences`, `GET /api/v1/geofences/events`, `PUT /api/v1/geofences/:id/vehicles` (assign/replace fleet scope).
+- Geofence evaluation on ingest: per-vehicle, per-active-geofence containment (circuit + polygon), state transitions, `geofence_events` rows, `alerts` (deduplicated per geofence+vehicle+event-type+hour) on entry (or exit) when enabled.
+- `alerts.dedupe_key` partial unique index (`20261120_geofence_and_alert_dedupe.sql`) — makes de-duplication race-free.
+
+### WebSocket implementation
+
+- `TrackingGateway` (new) on the default namespace; clients pass `auth.token` (same JWT the REST API uses) in the handshake; server joins the caller's organisation room (`tracking-org:<orgId>`).
+- Tracking service publishes `{ type: 'tracking.positions', positions, emittedAt }` batches only for vehicles whose position changed (drained from the ingest loop); the web client merges them into the react-query cache (`['tracking-snapshot']`) — markers move without a poll, plus a 5s polling fallback when the socket drops.
+
+### UI pages/components implemented
+
+- `/tracking` — `FleetMap` (MapLibre + supercluster, status colours, alert ring, fit-to-fleet), fleet/status/search filters, slide-in `VehicleDrawer` (speed, ignition, heading, accuracy, odometer, GPS timestamp + age, tracker serial/status, driver, open-alert count), offline vehicles rendered at last-known position.
+- `/trips` — history table + KPIs + filters + pagination; `/trips/[id]` — trip statistics and route playback (play/pause, 1x/4x/16x, timeline scrubber with start/end markers and progress).
+- `/geofences` — circle/polygon drawing on the map (click-to-place centre, click-to-set radius, drag vertex list for polygons), fleet scope (all/selected), alert-on-entry/exit toggles, delete, events feed (entry/exit with relative time).
+- Dashboards, engine diagnostics and login unchanged.
+
+### Database changes
+
+- `20261120_geofence_and_alert_dedupe.sql` — partial unique index `alerts_dedupe_key_idx`, index `vehicle_geofence_state_org_vehicle_idx`, index `trip_events_vehicle_type_idx`. Applied to `geoventra` and `geoventra_test`.
+
+### Tests executed
+
+- Unit/integration: 124 (27 turbo tasks green: contracts 17, gps-simulator 10, telemetry-processor 5, ui 26, api 51, web 15).
+- `pnpm echeck` (new script): typecheck + lint + test + build + Playwright — **all green**.
+- Playwright E2E (`tests/e2e/e2e.spec.cjs`): **11 scenarios passing** on `geoventra_test` with a deterministic fixture (live positions for the 3 seeded vehicles with one stale→offline, a completed trip with GPS points, an empty Northstar org for the authz test).
+
+### Remaining gaps
+
+- General alerts API + inbox UI (engine + geofence alerts only, no acknowledge/resolve inbox yet).
+- `vehicles`, `drivers`, `devices`, `trips` config, `reports`, `administration`, `dashboard`, `intelligence`, `simulator` APIs and their UI remain unimplemented (see feature matrix above).
+- LiveFuel/TPMS modules still absent (tables exist).
+- CI workflow, compose file, and real dropout/reconnect WS coverage.

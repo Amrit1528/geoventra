@@ -6,8 +6,20 @@
  * simulator uses when it publishes telemetry.
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import type { GeofenceSummary, LivePosition, NormalizedGpsEvent, TrackPoint } from '@geoventra/contracts';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  type AlertSummary,
+  type DeviceStatus,
+  type GeofenceSummary,
+  type LivePosition,
+  type NormalizedGpsEvent,
+  type TrackPoint,
+  type VehicleGpsGap,
+  type VehicleHistoryPage,
+  type VehicleHistoryPoint,
+  type VehicleTrackingDetail,
+  type VehicleTrackingStats,
+} from '@geoventra/contracts';
 import { DatabaseService } from '../common/infrastructure/database.service.js';
 import { TrackingEventBus } from './tracking-events.service.js';
 import { TripsService } from '../trips/trips.service.js';
@@ -17,6 +29,20 @@ export interface IngestResult {
   accepted: number;
   rejected: number;
   receivedAt: string;
+}
+
+/** Movement vocabulary shared by the status derivation, history filters and analytics. */
+export const VEHICLE_HISTORY_STATUSES = ['moving', 'idle', 'stopped'] as const;
+export type VehicleHistoryStatus = (typeof VEHICLE_HISTORY_STATUSES)[number];
+
+/** A historical query window, oldest-first semantics. */
+export interface VehicleHistoryQuery {
+  from?: string;
+  to?: string;
+  status?: VehicleHistoryStatus;
+  ignition?: boolean;
+  page?: number;
+  pageSize?: number;
 }
 
 interface VehicleBindingRow {
@@ -215,8 +241,8 @@ export class TrackingService {
           ignition, battery_voltage, gps_signal, accuracy_m, odometer_km, engine_hours,
           status, last_recorded_at, last_received_at, updated_at)
        VALUES ($1, $2, $3, $4,
-               ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography,
-               $5, $6, $7, $8, $9, $10, COALESCE($11, 0), COALESCE($12, 0), $13, $14, $14, now())
+               ST_SetSRID(ST_MakePoint($4, $3), 4326)::geography,
+               $5, $6, $7, $8, $9, $10, COALESCE($11::numeric, 0), COALESCE($12::numeric, 0), $13, $14, $14, now())
        ON CONFLICT (vehicle_id) DO UPDATE
           SET latitude = EXCLUDED.latitude,
               longitude = EXCLUDED.longitude,
@@ -227,8 +253,8 @@ export class TrackingService {
               battery_voltage = EXCLUDED.battery_voltage,
               gps_signal = EXCLUDED.gps_signal,
               accuracy_m = EXCLUDED.accuracy_m,
-              odometer_km = COALESCE(EXCLUDED.odometer_km, vehicle_live_status.odometer_km, 0),
-              engine_hours = COALESCE(EXCLUDED.engine_hours, vehicle_live_status.engine_hours, 0),
+              odometer_km = COALESCE(EXCLUDED.odometer_km, vehicle_live_status.odometer_km, 0::numeric),
+              engine_hours = COALESCE(EXCLUDED.engine_hours, vehicle_live_status.engine_hours, 0::numeric),
               status = EXCLUDED.status,
               last_recorded_at = EXCLUDED.last_recorded_at,
               last_received_at = EXCLUDED.last_received_at,
@@ -405,6 +431,335 @@ export class TrackingService {
       }))
       .reverse();
   }
+
+  // ── Phase P0.2 — vehicle detail, history, stats and export ──────────────────
+
+  /**
+   * Full tracking detail for one vehicle. Tenant-scoped: any vehicle that does not
+   * belong to the caller's organisation resolves to `null` and is reported as not found.
+   */
+  async getVehicleDetail(organisationId: string, vehicleId: string): Promise<VehicleTrackingDetail> {
+    const vehicle = await this.database.queryOne<{ id: string; registration_number: string; name: string; category: string; status: string }>(
+      `SELECT id, registration_number, name, category, status
+         FROM geoventra.vehicles
+        WHERE organisation_id = $1 AND id = $2`,
+      [organisationId, vehicleId],
+    );
+    if (!vehicle) {
+      throw new NotFoundException(`Vehicle ${vehicleId} was not found`);
+    }
+
+    const [live, deviceDriver, alerts] = await Promise.all([
+      this.database.queryOne<{
+        status: string;
+        latitude: number | null;
+        longitude: number | null;
+        speed_kph: number | null;
+        heading: number | null;
+        ignition: boolean | null;
+        accuracy_m: number | null;
+        battery_voltage: number | null;
+        odometer_km: number | null;
+        gps_signal: string | null;
+        last_recorded_at: Date | null;
+        last_received_at: Date | null;
+      }>(
+        `SELECT status, latitude, longitude, speed_kph, heading, ignition, accuracy_m,
+                battery_voltage, odometer_km, gps_signal, last_recorded_at, last_received_at
+           FROM geoventra.vehicle_live_status
+          WHERE vehicle_id = $1 AND organisation_id = $2`,
+        [vehicleId, organisationId],
+      ),
+      this.database.queryOne<{
+        assigned_driver_id: string | null;
+        driver_id: string | null;
+        driver_name: string | null;
+        driver_phone: string | null;
+        driver_status: string | null;
+        driver_safety_score: number | null;
+        device_serial: string | null;
+        device_status: string | null;
+        last_communication_at: Date | null;
+      }>(
+        `SELECT v.assigned_driver_id,
+                d.id AS driver_id, d.name AS driver_name, d.phone AS driver_phone,
+                d.status AS driver_status, d.safety_score AS driver_safety_score,
+                dev.device_id AS device_serial, dev.status AS device_status,
+                dev.last_communication_at AS last_communication_at
+           FROM geoventra.vehicles v
+           LEFT JOIN geoventra.device_assignments da
+             ON da.vehicle_id = v.id AND da.unassigned_at IS NULL
+           LEFT JOIN geoventra.devices dev ON dev.id = da.device_id
+           LEFT JOIN geoventra.drivers d ON d.id = v.assigned_driver_id
+          WHERE v.organisation_id = $1 AND v.id = $2`,
+        [organisationId, vehicleId],
+      ),
+      this.database.query<{
+        id: string;
+        type: string;
+        severity: string;
+        status: string;
+        title: string;
+        message: string;
+        vehicle_id: string;
+        driver_id: string | null;
+        driver_name: string | null;
+        latitude: number | null;
+        longitude: number | null;
+        occurred_at: Date;
+        acknowledged_at: Date | null;
+        acknowledged_by: string | null;
+        resolved_at: Date | null;
+        resolved_by: string | null;
+        metadata: unknown;
+      }>(
+        `SELECT id, type, severity, status, title, message, vehicle_id, driver_id, driver_name,
+                latitude, longitude, occurred_at, acknowledged_at, acknowledged_by,
+                resolved_at, resolved_by, metadata
+           FROM geoventra.alerts
+          WHERE organisation_id = $1 AND vehicle_id = $2
+            AND status IN ('open', 'acknowledged')
+          ORDER BY occurred_at DESC
+          LIMIT 5`,
+        [organisationId, vehicleId],
+      ),
+    ]);
+
+    const openAlertCountRow = await this.database.queryOne<{ count: number }>(
+      `SELECT COUNT(*)::int AS count
+         FROM geoventra.alerts
+        WHERE vehicle_id = $1 AND organisation_id = $2 AND status IN ('open', 'acknowledged')`,
+      [vehicleId, organisationId],
+    );
+    const openAlertCount = openAlertCountRow?.count ?? 0;
+
+    const ageSeconds = live?.last_recorded_at
+      ? Math.max(0, Math.round((Date.now() - live.last_recorded_at.getTime()) / 1000))
+      : null;
+
+    return {
+      vehicleId,
+      registrationNumber: vehicle.registration_number,
+      name: vehicle.name,
+      category: vehicle.category as VehicleTrackingDetail['category'],
+      status: vehicle.status as VehicleTrackingDetail['status'],
+      latitude: live?.latitude ?? null,
+      longitude: live?.longitude ?? null,
+      speedKph: live && live.speed_kph !== null ? Number(live.speed_kph) : null,
+      heading: live && live.heading !== null ? Number(live.heading) : null,
+      ignition: live ? live.ignition ?? null : null,
+      accuracyM: live && live.accuracy_m !== null ? Number(live.accuracy_m) : null,
+      batteryVoltage: live && live.battery_voltage !== null ? Number(live.battery_voltage) : null,
+      odometerKm: live && live.odometer_km !== null ? Number(live.odometer_km) : null,
+      driverId: deviceDriver?.assigned_driver_id ?? null,
+      driverName: deviceDriver?.driver_name ?? null,
+      deviceId: deviceDriver?.device_serial ?? null,
+      deviceStatus: (deviceDriver?.device_status ?? null) as DeviceStatus | null,
+      lastRecordedAt: live === null ? null : live.last_recorded_at ? live.last_recorded_at.toISOString() : null,
+      lastReceivedAt: live === null ? null : live.last_received_at ? live.last_received_at.toISOString() : null,
+      lastCommunicationAt: deviceDriver === null ? null : deviceDriver?.last_communication_at ? deviceDriver.last_communication_at.toISOString() : null,
+      ageSeconds,
+      openAlertCount,
+      alerts: alerts.map((alert) => toAlertSummary(alert)),
+      serverTime: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Historical tracking points for one vehicle, oldest-first, tenant-scoped and
+   * de-duplicated by event id (device re-deliveries must not corrupt the timeline).
+   */
+  async history(organisationId: string, vehicleId: string, query: VehicleHistoryQuery): Promise<VehicleHistoryPage> {
+    const { from, to, status, ignition, page, pageSize } = query;
+
+    const conditions: string[] = ['g.organisation_id = $1', 'g.vehicle_id = $2'];
+    const params: unknown[] = [organisationId, vehicleId];
+    let nextIndex = 3;
+
+    let fromDate: Date | null = null;
+    let toDate: Date | null = null;
+    if (from) {
+      fromDate = new Date(from);
+      if (Number.isNaN(fromDate.getTime())) {
+        throw new BadRequestException('Query parameter `from` must be a valid ISO 8601 timestamp');
+      }
+      params.push(fromDate);
+      conditions.push(`g.recorded_at >= $${nextIndex}`);
+      nextIndex += 1;
+    }
+    if (to) {
+      toDate = new Date(to);
+      if (Number.isNaN(toDate.getTime())) {
+        throw new BadRequestException('Query parameter `to` must be a valid ISO 8601 timestamp');
+      }
+      params.push(toDate);
+      conditions.push(`g.recorded_at <= $${nextIndex}`);
+      nextIndex += 1;
+    }
+    if (status) {
+      conditions.push(
+        status === 'moving'
+          ? 'g.ignition = TRUE AND g.speed_kph > 2'
+          : status === 'idle'
+            ? 'g.ignition = TRUE AND g.speed_kph <= 2'
+            : 'g.ignition = FALSE',
+      );
+    }
+    if (ignition !== undefined) {
+      params.push(ignition);
+      conditions.push(`g.ignition = $${nextIndex}`);
+      nextIndex += 1;
+    }
+
+    const where = conditions.join(' AND ');
+    const pageSizeValue = Math.min(Math.max(query.pageSize ?? 500, 1), 5000);
+    const pageValue = Math.max(1, query.page ?? 1);
+    const offset = (pageValue - 1) * pageSizeValue;
+
+    const count = await this.database.queryOne<{ count: number }>(
+      `SELECT COUNT(*)::int AS count
+         FROM geoventra.gps_positions g
+        WHERE ${where}`,
+      params,
+    );
+
+    params.push(pageSizeValue);
+    params.push(offset);
+    const rows = await this.database.query<HistoryRow>(
+      `SELECT g.event_id, g.organisation_id, g.vehicle_id, g.latitude, g.longitude, g.speed_kph,
+              g.heading, g.ignition, g.accuracy_m, g.gps_signal, g.satellites, g.battery_voltage,
+              g.odometer_km, g.engine_hours, g.location_name, g.source, g.recorded_at, g.received_at
+         FROM geoventra.gps_positions g
+        WHERE ${where}
+        ORDER BY g.recorded_at ASC, g.event_id ASC
+        LIMIT $${nextIndex} OFFSET $${nextIndex + 1}`,
+      params,
+    );
+
+    const data = dedupeHistoryRows(rows).map(toVehicleHistoryPoint);
+
+    return {
+      data,
+      meta: {
+        page: pageValue,
+        pageSize: pageSizeValue,
+        total: count?.count ?? 0,
+        totalPages: Math.max(1, Math.ceil((count?.count ?? 0) / pageSizeValue)),
+      },
+    };
+  }
+
+  /** Calculated tracking statistics for a vehicle inside a time window. */
+  async historyStats(organisationId: string, vehicleId: string, query: VehicleHistoryQuery): Promise<VehicleTrackingStats> {
+    const { from, to } = query;
+
+    const conditions = ['g.organisation_id = $1', 'g.vehicle_id = $2'];
+    const params: unknown[] = [organisationId, vehicleId];
+    if (from) {
+      const fromDate = new Date(from);
+      if (Number.isNaN(fromDate.getTime())) {
+        throw new BadRequestException('Query parameter `from` must be a valid ISO 8601 timestamp');
+      }
+      params.push(fromDate);
+      conditions.push(`g.recorded_at >= $${params.length}`);
+    }
+    if (to) {
+      const toDate = new Date(to);
+      if (Number.isNaN(toDate.getTime())) {
+        throw new BadRequestException('Query parameter `to` must be a valid ISO 8601 timestamp');
+      }
+      params.push(toDate);
+      conditions.push(`g.recorded_at <= $${params.length}`);
+    }
+
+    const rows = await this.database.query<HistoryRow>(
+      `SELECT g.event_id, g.organisation_id, g.vehicle_id, g.latitude, g.longitude, g.speed_kph,
+              g.heading, g.ignition, g.accuracy_m, g.gps_signal, g.satellites, g.battery_voltage,
+              g.odometer_km, g.engine_hours, g.location_name, g.source, g.recorded_at, g.received_at
+         FROM geoventra.gps_positions g
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY g.recorded_at ASC, g.event_id ASC`,
+      params,
+    );
+
+    const points = dedupeHistoryRows(rows).map(toVehicleHistoryPoint);
+    const firstPoint = points[0] ?? null;
+    const lastPoint = points[points.length - 1] ?? null;
+    const fromDate = query.from ? new Date(query.from) : (firstPoint ? new Date(firstPoint.recordedAt) : new Date());
+    const toDate = query.to ? new Date(query.to) : (lastPoint ? new Date(lastPoint.recordedAt) : new Date());
+
+    return computeVehicleTrackingStats(vehicleId, points, fromDate, toDate);
+  }
+
+  /** CSV export of a vehicle's tracking history, honouring the same filters. */
+  async exportCsv(organisationId: string, vehicleId: string, query: VehicleHistoryQuery): Promise<string> {
+    const { from, to, status, ignition } = query;
+
+    const conditions = ['g.organisation_id = $1', 'g.vehicle_id = $2'];
+    const params: unknown[] = [organisationId, vehicleId];
+    let nextIndex = 3;
+
+    if (from) {
+      const fromDate = new Date(from);
+      if (Number.isNaN(fromDate.getTime())) {
+        throw new BadRequestException('Query parameter `from` must be a valid ISO 8601 timestamp');
+      }
+      params.push(fromDate);
+      conditions.push(`g.recorded_at >= $${nextIndex}`);
+      nextIndex += 1;
+    }
+    if (to) {
+      const toDate = new Date(to);
+      if (Number.isNaN(toDate.getTime())) {
+        throw new BadRequestException('Query parameter `to` must be a valid ISO 8601 timestamp');
+      }
+      params.push(toDate);
+      conditions.push(`g.recorded_at <= $${nextIndex}`);
+      nextIndex += 1;
+    }
+    if (status) {
+      conditions.push(
+        status === 'moving'
+          ? 'g.ignition = TRUE AND g.speed_kph > 2'
+          : status === 'idle'
+            ? 'g.ignition = TRUE AND g.speed_kph <= 2'
+            : 'g.ignition = FALSE',
+      );
+    }
+    if (ignition !== undefined) {
+      params.push(ignition);
+      conditions.push(`g.ignition = $${nextIndex}`);
+      nextIndex += 1;
+    }
+
+    const rows = await this.database.query<HistoryRow>(
+      `SELECT g.event_id, g.organisation_id, g.vehicle_id, g.latitude, g.longitude, g.speed_kph,
+              g.heading, g.ignition, g.accuracy_m, g.gps_signal, g.satellites, g.battery_voltage,
+              g.odometer_km, g.engine_hours, g.location_name, g.source, g.recorded_at, g.received_at,
+              v.registration_number AS vehicle_registration
+         FROM geoventra.gps_positions g
+         JOIN geoventra.vehicles v ON v.id = g.vehicle_id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY g.recorded_at ASC, g.event_id ASC
+        LIMIT 10000`,
+      params,
+    );
+
+    const lines = rows.map((row) => [
+      row.vehicle_registration,
+      row.recorded_at.toISOString(),
+      row.received_at.toISOString(),
+      Number(row.latitude).toFixed(6),
+      Number(row.longitude).toFixed(6),
+      Number(row.speed_kph).toFixed(2),
+      Number(row.heading).toFixed(2),
+      row.ignition ? 'true' : 'false',
+      row.accuracy_m === null ? '' : Number(row.accuracy_m).toFixed(2),
+    ].join(','));
+
+    const header = ['vehicle_registration', 'recorded_at', 'received_at', 'latitude', 'longitude', 'speed_kph', 'heading', 'ignition', 'accuracy_m'].join(',');
+    return [header, ...lines].join('\n');
+  }
 }
 
 /** Derive the vehicle status from the latest sample. */
@@ -461,9 +816,9 @@ function mapLiveStatusRow(row: LiveStatusRow, now: number): LivePosition {
     speedKph: Number(row.speed_kph ?? 0),
     heading: Number(row.heading ?? 0),
     ignition: row.ignition ?? false,
-    batteryVoltage: row.battery_voltage ?? null,
+    batteryVoltage: row.battery_voltage === null ? null : Number(row.battery_voltage),
     gpsSignal: (row.gps_signal ?? 'none') as LivePosition['gpsSignal'],
-    accuracyM: row.accuracy_m ?? null,
+    accuracyM: row.accuracy_m === null ? null : Number(row.accuracy_m),
     driverId: row.assigned_driver_id,
     driverName: row.driver_name,
     groupName: row.group_name,
@@ -495,5 +850,212 @@ function toTripSample(vehicleId: string, event: NormalizedGpsEvent): {
     speedKph: event.speedKph,
     odometerKm: event.odometerKm,
     recordedAt: new Date(event.recordedAt),
+  };
+}
+
+// ── Phase P0.2 — tracking history helpers ────────────────────────────────────
+
+/** Rows returned by the historical queries (with the optional vehicle registration). */
+interface HistoryRow {
+  event_id: string;
+  organisation_id: string;
+  vehicle_id: string;
+  latitude: number;
+  longitude: number;
+  speed_kph: number;
+  heading: number;
+  ignition: boolean;
+  accuracy_m: number | null;
+  gps_signal: string | null;
+  satellites: number | null;
+  battery_voltage: number | null;
+  odometer_km: number | null;
+  engine_hours: number | null;
+  location_name: string | null;
+  source: string;
+  recorded_at: Date;
+  received_at: Date;
+  vehicle_registration?: string | null;
+}
+
+/** Minimum interval (seconds) between two samples before the gap is treated as a GPS dropout. */
+const HISTORY_GAP_SECONDS = 900;
+/** Speed below which a sample counts as idle (mirrors the live status derivation). */
+const MOVING_SPEED_THRESHOLD_KPH = 2;
+
+/** Map a raw `gps_positions` row onto the canonical `VehicleHistoryPoint` contract. */
+function toVehicleHistoryPoint(row: HistoryRow): VehicleHistoryPoint {
+  return {
+    vehicleId: row.vehicle_id,
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    speedKph: Number(row.speed_kph ?? 0),
+    heading: Number(row.heading ?? 0),
+    ignition: row.ignition,
+    recordedAt: row.recorded_at.toISOString(),
+    receivedAt: row.received_at.toISOString(),
+    accuracyM: row.accuracy_m === null ? null : Number(row.accuracy_m),
+    batteryVoltage: row.battery_voltage === null ? null : Number(row.battery_voltage),
+    odometerKm: row.odometer_km === null ? null : Number(row.odometer_km),
+    gpsSignal: row.gps_signal ?? null,
+    satelliteCount: row.satellites === null ? null : Number(row.satellites),
+    engineHours: row.engine_hours === null ? null : Number(row.engine_hours),
+    locationName: row.location_name ?? null,
+    source: row.source ?? 'unknown',
+  };
+}
+
+/**
+ * De-duplicate historical rows by the ingest event key while preserving the
+ * (already chronological) order. Retransmitted events must not corrupt history.
+ */
+function dedupeHistoryRows<T extends { organisation_id: string; vehicle_id: string; event_id: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  for (const row of rows) {
+    const key = `${row.organisation_id}:${row.vehicle_id}:${row.event_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  return unique;
+}
+
+/** Map a raw alert row onto the shared `AlertSummary` contract. */
+function toAlertSummary(alert: {
+  id: string;
+  type: string;
+  severity: string;
+  status: string;
+  title: string;
+  message: string;
+  vehicle_id: string;
+  driver_id: string | null;
+  driver_name: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  occurred_at: Date;
+  acknowledged_at: Date | null;
+  acknowledged_by: string | null;
+  resolved_at: Date | null;
+  resolved_by: string | null;
+  metadata: unknown;
+}): AlertSummary {
+  return {
+    id: alert.id,
+    type: alert.type as AlertSummary['type'],
+    severity: alert.severity as AlertSummary['severity'],
+    status: alert.status as AlertSummary['status'],
+    title: alert.title,
+    message: alert.message,
+    vehicleId: alert.vehicle_id,
+    vehicleRegistration: null,
+    driverId: alert.driver_id,
+    driverName: alert.driver_name,
+    latitude: alert.latitude,
+    longitude: alert.longitude,
+    occurredAt: alert.occurred_at.toISOString(),
+    acknowledgedAt: alert.acknowledged_at ? alert.acknowledged_at.toISOString() : null,
+    acknowledgedBy: alert.acknowledged_by,
+    resolvedAt: alert.resolved_at ? alert.resolved_at.toISOString() : null,
+    resolvedBy: alert.resolved_by,
+    metadata: (alert.metadata ?? {}) as Record<string, unknown>,
+  };
+}
+
+/** Geodesic distance between two WGS84 points, in kilometres. */
+function haversineKm(latitude1: number, longitude1: number, latitude2: number, longitude2: number): number {
+  const earthRadiusKm = 6_371;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRadians(latitude2 - latitude1);
+  const dLng = toRadians(longitude2 - longitude1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(latitude1)) * Math.cos(toRadians(latitude2)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
+/** Derived movement state of a single sample. */
+function movementState(ignition: boolean, speedKph: number): 'moving' | 'idle' | 'stopped' {
+  if (!ignition) return 'stopped';
+  return speedKph > MOVING_SPEED_THRESHOLD_KPH ? 'moving' : 'idle';
+}
+
+/**
+ * Calculate the tracking statistics of a vehicle for a time window.
+ *
+ * Distance is taken from the device-reported odometer when both window edges expose one
+ * (source `odometer`) and from the geometric route otherwise (source `calculated`).
+ * Movement, idle and stopped durations are accumulated from consecutive samples; longer
+ * gaps are reported as GPS data gaps instead of being counted as idle time.
+ */
+export function computeVehicleTrackingStats(
+  vehicleId: string,
+  points: VehicleHistoryPoint[],
+  from: Date,
+  to: Date,
+): VehicleTrackingStats {
+  const first = points[0] ?? null;
+  const last = points[points.length - 1] ?? null;
+
+  let movingSeconds = 0;
+  let idleSeconds = 0;
+  let stoppedSeconds = 0;
+  const gaps: VehicleGpsGap[] = [];
+  let odometerDistanceKm: number | null = null;
+
+  if (first && last && first.odometerKm !== null && last.odometerKm !== null) {
+    odometerDistanceKm = Math.max(0, last.odometerKm - first.odometerKm);
+  }
+
+  let calculatedDistanceKm = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const current = points[index];
+    const previous = points[index - 1];
+    if (current === undefined || previous === undefined) continue;
+    const seconds = Math.max(
+      0,
+      (new Date(current.recordedAt).getTime() - new Date(previous.recordedAt).getTime()) / 1000,
+    );
+    const state = movementState(current.ignition, current.speedKph);
+
+    if (seconds > HISTORY_GAP_SECONDS) {
+      gaps.push({ from: previous.recordedAt, to: current.recordedAt, gapSeconds: seconds });
+      continue;
+    }
+
+    if (state === 'moving') {
+      movingSeconds += seconds;
+      calculatedDistanceKm += haversineKm(previous.latitude, previous.longitude, current.latitude, current.longitude);
+    } else if (state === 'idle') {
+      idleSeconds += seconds;
+    } else {
+      stoppedSeconds += seconds;
+    }
+  }
+
+  const totalDistanceKm = odometerDistanceKm ?? calculatedDistanceKm;
+  const distanceSource = odometerDistanceKm !== null ? ('odometer' as const) : ('calculated' as const);
+  const avgSpeedKph = movingSeconds > 0 ? totalDistanceKm / (movingSeconds / 3600) : 0;
+
+  return {
+    vehicleId,
+    from: from.toISOString(),
+    to: to.toISOString(),
+    firstRecordedAt: first ? first.recordedAt : null,
+    lastRecordedAt: last ? last.recordedAt : null,
+    firstLatitude: first ? first.latitude : null,
+    firstLongitude: first ? first.longitude : null,
+    lastLatitude: last ? last.latitude : null,
+    lastLongitude: last ? last.longitude : null,
+    totalDistanceKm,
+    distanceSource,
+    avgSpeedKph,
+    maxSpeedKph: points.reduce((max, point) => Math.max(max, point.speedKph), 0),
+    movingSeconds,
+    idleSeconds,
+    stoppedSeconds,
+    gpsDataGaps: gaps,
   };
 }

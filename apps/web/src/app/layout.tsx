@@ -19,10 +19,21 @@ export const metadata: Metadata = {
     'Enterprise fleet management and GPS tracking platform: live vehicle positions, engine diagnostics, fuel, TPMS, maintenance and geofencing.',
 };
 
+// Read the runtime environment (API base URLs) at request time rather than baking it
+// into the static prerender, so a single build can run against any backend origin.
+export const dynamic = 'force-dynamic';
+
 export default function RootLayout({ children }: { children: ReactNode }): ReactElement {
+  // Runtime-only variables (read at request time); NEXT_PUBLIC_* would be baked at build.
   const runtimeEnv = {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1',
-    NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:4000',
+    NEXT_PUBLIC_API_URL:
+      process.env.GEOVENTRA_API_URL ??
+      process.env.NEXT_PUBLIC_API_URL ??
+      'http://localhost:4000/api/v1',
+    NEXT_PUBLIC_WS_URL:
+      process.env.GEOVENTRA_WS_URL ??
+      process.env.NEXT_PUBLIC_WS_URL ??
+      'http://localhost:4000',
   };
 
   return (

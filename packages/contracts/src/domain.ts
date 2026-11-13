@@ -100,6 +100,7 @@ export const PERMISSIONS = [
   'devices.read',
   'devices.write',
   'tracking.read',
+  'tracking.export',
   'trips.read',
   'trips.export',
   'geofences.read',
@@ -442,6 +443,22 @@ export interface AlertSummary {
   resolvedAt: string | null;
   resolvedBy: string | null;
   metadata: Record<string, unknown>;
+}
+
+// ── Notifications ──────────────────────────────────────────────────────────────────
+
+export interface Notification {
+  id: string;
+  organisationId: string;
+  userId: string;
+  alertId: string | null;
+  type: AlertType;
+  severity: Severity;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  readAt: string | null;
 }
 
 // ── Reports ───────────────────────────────────────────────────────────────────

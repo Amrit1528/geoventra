@@ -312,7 +312,7 @@ export class TripsRepository {
       `UPDATE geoventra.trips
           SET distance_km = $2, max_speed_kph = $3, idle_seconds = $4,
               end_latitude = $5, end_longitude = $6,
-              end_position = ST_SetSRID(ST_MakePoint($6, $5), 4326)::geography,
+              end_latitude = $5, end_longitude = $6,
               avg_speed_kph = $7, duration_seconds = $8, status = 'completed',
               end_label = COALESCE($9, end_label),
               ended_at = $10, updated_at = now()
