@@ -214,32 +214,34 @@ export class GeofencesService {
     organisationId: string,
     filters: { type?: string; severity?: string; status?: string; vehicleId?: string; limit?: number },
   ): Promise<AlertSummary[]> {
-    const conditions: string[] = ['organisation_id = $1'];
+    const conditions: string[] = ['a.organisation_id = $1'];
     const params: unknown[] = [organisationId];
     if (filters.vehicleId) {
       params.push(filters.vehicleId);
-      conditions.push(`vehicle_id = $${params.length}`);
+      conditions.push(`a.vehicle_id = $${params.length}`);
     }
     if (filters.type) {
       params.push(filters.type);
-      conditions.push(`type = $${params.length}`);
+      conditions.push(`a.type = $${params.length}`);
     }
     if (filters.severity) {
       params.push(filters.severity);
-      conditions.push(`severity = $${params.length}`);
+      conditions.push(`a.severity = $${params.length}`);
     }
     if (filters.status) {
       params.push(filters.status);
-      conditions.push(`status = $${params.length}`);
+      conditions.push(`a.status = $${params.length}`);
     }
 
     const rows = await this.database.query<AlertRow>(
-      `SELECT id, type, severity, status, title, message, vehicle_id, driver_id, driver_name,
-              latitude, longitude, occurred_at, acknowledged_at, acknowledged_by, resolved_at,
-              resolved_by, dedupe_key, metadata
-         FROM geoventra.alerts
+      `SELECT a.id, a.type, a.severity, a.status, a.title, a.message, a.vehicle_id, a.driver_id,
+              d.name AS driver_name,
+              a.latitude, a.longitude, a.occurred_at, a.acknowledged_at, a.acknowledged_by, a.resolved_at,
+              a.resolved_by, a.dedupe_key, a.metadata
+         FROM geoventra.alerts a
+         LEFT JOIN geoventra.drivers d ON a.driver_id = d.id
         WHERE ${conditions.join(' AND ')}
-        ORDER BY occurred_at DESC
+        ORDER BY a.occurred_at DESC
         LIMIT $${params.length + 1}`,
       [...params, filters.limit ?? 50],
     );
@@ -278,7 +280,7 @@ export class GeofencesService {
               acknowledged_by = $3,
               updated_at = now()
         WHERE organisation_id = $1 AND id = $2 AND status <> 'resolved'
-        RETURNING id, type, severity, status, title, message, vehicle_id, driver_id, driver_name,
+        RETURNING id, type, severity, status, title, message, vehicle_id, driver_id
                   latitude, longitude, occurred_at, acknowledged_at, acknowledged_by, resolved_at,
                   resolved_by, dedupe_key, metadata`,
       [organisationId, alertId, userId],
@@ -318,7 +320,7 @@ export class GeofencesService {
               resolved_by = $3,
               updated_at = now()
         WHERE organisation_id = $1 AND id = $2 AND status <> 'resolved'
-        RETURNING id, type, severity, status, title, message, vehicle_id, driver_id, driver_name,
+        RETURNING id, type, severity, status, title, message, vehicle_id, driver_id
                   latitude, longitude, occurred_at, acknowledged_at, acknowledged_by, resolved_at,
                   resolved_by, dedupe_key, metadata`,
       [organisationId, alertId, userId],

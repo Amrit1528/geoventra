@@ -30,19 +30,19 @@ export class FleetGroupsService {
     const dataSql = `SELECT g.id, g.name, g.description, g.is_archived, array_agg(DISTINCT v.id) AS vehicle_ids, array_agg(DISTINCT v.registration_number) AS vehicle_regs, array_agg(DISTINCT u.id) AS user_ids, array_agg(DISTINCT u.name) AS user_names, g.created_at FROM geoventra.vehicle_groups g LEFT JOIN geoventra.vehicles v ON v.group_id = g.id LEFT JOIN geoventra.users u ON u.group_id = g.id WHERE ${where.join(' AND ')} GROUP BY g.id, g.name, g.description, g.is_archived, g.created_at ORDER BY g.created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
-    const [rows] = await this.database.query(dataSql, params);
-    return { data: rows, meta: { total, page, pageSize } };
+    const rows = await this.database.query(dataSql, params);
+    return { data: rows, meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / Math.max(1, pageSize))) } };
   }
 
   async getGroup(organisationId: string, groupId: string) {
     const sql = `SELECT g.id, g.name, g.description, g.is_archived, array_agg(DISTINCT v.id) AS vehicle_ids, array_agg(DISTINCT v.registration_number) AS vehicle_regs, array_agg(DISTINCT u.id) AS user_ids, array_agg(DISTINCT u.name) AS user_names FROM geoventra.vehicle_groups g LEFT JOIN geoventra.vehicles v ON v.group_id = g.id LEFT JOIN geoventra.users u ON u.group_id = g.id WHERE g.organisation_id = $1 AND g.id = $2 GROUP BY g.id, g.name, g.description, g.is_archived`;
-    const [row] = await this.database.query(sql, [organisationId, groupId]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, groupId]);
     return row ?? null;
   }
 
   async createGroup(organisationId: string, input: { name: string; description?: string; vehicleIds?: string[]; userIds?: string[] }) {
     const sql = `INSERT INTO geoventra.vehicle_groups (organisation_id, name, description, created_at, updated_at) VALUES ($1, $2, $3, now(), now()) RETURNING id, name, description, is_archived, created_at`;
-    const [row] = await this.database.query(sql, [organisationId, input.name, input.description || '']);
+    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, input.description || '']);
     const groupId = (row as any)?.id;
 
     if (input.vehicleIds && input.vehicleIds.length > 0) {
@@ -58,7 +58,7 @@ export class FleetGroupsService {
 
   async updateGroup(organisationId: string, groupId: string, input: { name?: string; description?: string; vehicleIds?: string[]; userIds?: string[]; archive?: boolean }) {
     const sql = `UPDATE geoventra.vehicle_groups SET name = COALESCE($2, name), description = COALESCE($3, description), is_archived = COALESCE($4, is_archived), updated_at = now() WHERE organisation_id = $1 AND id = $5 RETURNING id, name, description, is_archived, created_at`;
-    const [row] = await this.database.query(sql, [organisationId, input.name, input.description, input.archive, groupId]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, input.description, input.archive, groupId]);
     if (!row) throw new Error('Group not found');
     if (input.vehicleIds) await this.setVehicles(groupId, input.vehicleIds);
     if (input.userIds) await this.setUsers(groupId, input.userIds);

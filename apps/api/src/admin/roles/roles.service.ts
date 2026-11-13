@@ -30,20 +30,20 @@ export class RolesService {
     const dataSql = `SELECT r.id, r.name, r.description, r.is_system, r.created_at, array_agg(p.code) AS permissions FROM geoventra.roles r LEFT JOIN geoventra.role_permissions rp ON rp.role_id = r.id LEFT JOIN geoventra.permissions p ON p.id = rp.permission_id WHERE ${where.join(' AND ')} GROUP BY r.id, r.name, r.description, r.is_system, r.created_at ORDER BY r.created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
-    const [rows] = await this.database.query(dataSql, params);
-    return { data: rows, meta: { total, page, pageSize } };
+    const rows = await this.database.query(dataSql, params);
+    return { data: rows, meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / Math.max(1, pageSize))) } };
   }
 
   async getRole(organisationId: string, roleId: string) {
     const sql = `SELECT r.id, r.name, r.description, r.is_system, array_agg(p.code) AS permissions FROM geoventra.roles r LEFT JOIN geoventra.role_permissions rp ON rp.role_id = r.id LEFT JOIN geoventra.permissions p ON p.id = rp.permission_id WHERE r.organisation_id = $1 AND r.id = $2 GROUP BY r.id, r.name, r.description, r.is_system`;
-    const [row] = await this.database.query(sql, [organisationId, roleId]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, roleId]);
     return row ?? null;
 
   }
 
   async createRole(organisationId: string, input: { name: string; description?: string; permissions?: string[] }) {
     const sql = `INSERT INTO geoventra.roles (organisation_id, name, description, created_at, updated_at) VALUES ($1, $2, $3, now(), now()) RETURNING id, name, description, is_system, created_at`;
-    const [row] = await this.database.query(sql, [organisationId, input.name, input.description || '']);
+    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, input.description || '']);
     const roleId = (row as any)?.id;
     if (input.permissions && input.permissions.length > 0) {
       await this.assignPermissions(roleId, input.permissions);
@@ -53,7 +53,7 @@ export class RolesService {
 
   async updateRole(organisationId: string, roleId: string, input: { name?: string; description?: string; permissions?: string[] }) {
     const sql = `UPDATE geoventra.roles SET name = COALESCE($2, name), description = COALESCE($3, description), updated_at = now() WHERE organisation_id = $1 AND id = $4 RETURNING id, name, description, is_system, created_at`;
-    const [row] = await this.database.query(sql, [organisationId, input.name, input.description, roleId]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, input.description, roleId]);
     if (input.permissions && input.permissions.length > 0) {
       await this.assignPermissions(roleId, input.permissions);
     }

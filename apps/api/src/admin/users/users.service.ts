@@ -44,13 +44,13 @@ export class UsersService {
     const dataSql = `SELECT id, name, email, phone, role_id, role_name, status, last_login_at, created_at FROM geoventra.users WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
-    const [rows] = await this.database.query(dataSql, params);
-    return { data: rows, meta: { total, page, pageSize } };
+    const rows = await this.database.query(dataSql, params);
+    return { data: rows, meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / Math.max(1, pageSize))) } };
   }
 
   async getUser(organisationId: string, userId: string) {
     const sql = `SELECT u.id, u.name, u.email, u.phone, u.role_id, r.name AS role_name, r.description AS role_description, r.is_system, u.status, u.last_login_at, u.created_at FROM geoventra.users u LEFT JOIN geoventra.roles r ON r.id = u.role_id WHERE u.organisation_id = $1 AND u.id = $2`;
-    const [row] = await this.database.query(sql, [organisationId, userId]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, userId]);
     return row ?? null;
   }
 
@@ -67,7 +67,7 @@ export class UsersService {
     const sql = `INSERT INTO geoventra.users (organisation_id, name, email, password_hash, role_id, phone, status, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
                  RETURNING id, name, email, phone, role_id, status, created_at, updated_at`;
-    const [row] = await this.database.query(sql, [
+    const row = await this.database.queryOne<any>(sql, [
       organisationId, input.name, input.email, hash, input.roleId, input.phone || null, input.status || 'active',
     ]);
     return row;
@@ -104,7 +104,7 @@ export class UsersService {
 
     params.push(organisationId, userId);
     const sql = `UPDATE geoventra.users SET ${fields.join(', ')} WHERE organisation_id = $${i} AND id = $${i + 1} RETURNING id, name, email, phone, role_id, status, created_at, updated_at`;
-    const [row] = await this.database.query(sql, params);
+    const row = await this.database.queryOne<any>(sql, params);
     return row ?? null;
   }
 

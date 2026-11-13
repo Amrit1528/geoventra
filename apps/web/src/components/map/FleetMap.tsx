@@ -15,6 +15,14 @@ import type { GeofenceSummary, LivePosition, TrackPoint } from '@geoventra/contr
 import { cn } from '@geoventra/ui';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+// Ensure MapLibre worker resolves correctly in Next.js/Turbopack builds.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (maplibregl as any).workerUrl = new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).toString();
+} catch {
+  // Fallback: let MapLibre resolve its default worker.
+}
+
 export type MarkerStatus = 'moving' | 'idle' | 'stopped' | 'offline';
 
 export interface FleetRouteStop {

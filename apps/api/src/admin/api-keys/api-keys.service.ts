@@ -35,13 +35,13 @@ export class ApiKeysService {
     const dataSql = `SELECT id, name, prefix, scopes, last_used_at, created_at FROM geoventra.api_keys WHERE ${where.join(' AND ')} AND revoked_at IS NULL ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
-    const [rows] = await this.database.query(dataSql, params);
-    return { data: rows, meta: { total, page, pageSize } };
+    const rows = await this.database.query(dataSql, params);
+    return { data: rows, meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / Math.max(1, pageSize))) } };
   }
 
   async getKey(organisationId: string, id: string) {
     const sql = `SELECT id, name, scopes, last_used_at, created_at, created_by FROM geoventra.api_keys WHERE organisation_id = $1 AND id = $2 AND revoked_at IS NULL`;
-    const [row] = await this.database.query(sql, [organisationId, id]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, id]);
     return row ?? null;
   }
 
@@ -51,7 +51,7 @@ export class ApiKeysService {
     const keyHash = await this.hashKey(rawKey);
 
     const sql = `INSERT INTO geoventra.api_keys (organisation_id, name, prefix, key_hash, scopes, created_at) VALUES ($1, $2, $3, $4, $5, now()) RETURNING id, name, prefix, scopes, last_used_at, created_at`;
-    const [row] = await this.database.query(sql, [organisationId, input.name, prefix, keyHash, JSON.stringify(input.scopes)]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, prefix, keyHash, JSON.stringify(input.scopes)]);
 
     if (row) {
       await this.adminService.createAuditLog(organisationId, null, 'CREATE_API_KEY', 'api_key', row.id, { name: input.name });
@@ -61,7 +61,7 @@ export class ApiKeysService {
 
   async updateKey(organisationId: string, id: string, input: { name?: string; scopes?: string[]; revoke?: boolean }) {
     const sql = `UPDATE geoventra.api_keys SET name = COALESCE($2, name), scopes = COALESCE($3, scopes), updated_at = now() WHERE organisation_id = $1 AND id = $4 AND revoked_at IS NULL RETURNING id, name, prefix, scopes, last_used_at, created_at`;
-    const [row] = await this.database.query(sql, [organisationId, input.name, input.scopes ? JSON.stringify(input.scopes) : null, id]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, input.scopes ? JSON.stringify(input.scopes) : null, id]);
     if (!row) throw new Error('API key not found or revoked');
     return row;
   }

@@ -29,6 +29,9 @@ import { FuelModule } from './fuel/fuel.module.js';
 import { AlertModule } from './alerts/alert.module.js';
 import { VehicleTelematicsModule } from './vehicle-telematics/vehicle-telematics.module.js';
 import { VehiclesModule } from './vehicles/vehicles.module.js';
+import { DriversModule } from './drivers/drivers.module.js';
+import { MaintenanceModule } from './maintenance/maintenance.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 import { AdminModule } from './admin/admin.module.js';
 
 @Module({
@@ -59,6 +62,9 @@ import { AdminModule } from './admin/admin.module.js';
     AlertModule,
     VehicleTelematicsModule,
     VehiclesModule,
+    DriversModule,
+    MaintenanceModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}

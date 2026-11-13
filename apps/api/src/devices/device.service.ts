@@ -85,20 +85,20 @@ export class DevicesService {
     const dataSql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config FROM geoventra.devices WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
-    const [rows] = await this.database.query(dataSql, params);
-    return { data: rows, meta: { total, page, pageSize } };
+    const rows = await this.database.query(dataSql, params);
+    return { data: rows, meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / Math.max(1, pageSize))) } };
   }
 
   async getDevice(organisationId: string, deviceId: string) {
     const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config FROM geoventra.devices WHERE organisation_id = $1 AND id = $2`;
-    const [row] = await this.database.query(sql, [organisationId, deviceId]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, deviceId]);
     if (!row) throw new NotFoundException('Device not found');
     return this.enrichDevice(row);
   }
 
   async getDeviceBySerial(organisationId: string, deviceId: string) {
     const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config FROM geoventra.devices WHERE organisation_id = $1 AND device_id = $2`;
-    const [row] = await this.database.query(sql, [organisationId, deviceId]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, deviceId]);
     if (!row) throw new NotFoundException('Device not found');
     return this.enrichDevice(row);
   }
@@ -134,7 +134,7 @@ export class DevicesService {
     for (const f of required) {
       if (!input[f]) throw new Error(`Missing required field: ${f}`);
     }
-    const [row] = await this.database.query(
+    const row = await this.database.queryOne<any>(
       `INSERT INTO geoventra.devices (organisation_id, device_id, device_type, imei, model, firmware_version, provider, status, connection_method, connection_config, integration_method, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, now(), now())
        RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config`,
@@ -178,7 +178,7 @@ export class DevicesService {
 
     params.push(organisationId, deviceId);
     const sql = `UPDATE geoventra.devices SET ${fields.join(', ')} WHERE organisation_id = $${i} AND id = $${i + 1} RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config`;
-    const [row] = await this.database.query(sql, params);
+    const row = await this.database.queryOne<any>(sql, params);
     if (!row) throw new NotFoundException('Device not found');
     return this.enrichDevice(row);
   }

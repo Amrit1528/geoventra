@@ -19,6 +19,13 @@ import { fetchTrip, fetchTripPlayback } from '@/lib/track-api';
 import { formatDateTime, formatMetricValue } from '@/lib/format';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+try {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (maplibregl as any).workerUrl = new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).toString();
+} catch {
+  // ignore
+}
+
 const MAP_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {},

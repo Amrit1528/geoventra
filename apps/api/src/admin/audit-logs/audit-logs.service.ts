@@ -47,13 +47,13 @@ export class AuditLogsService {
     const dataSql = `SELECT id, user_id, action, entity_type, entity_id, ip_address, user_agent, created_at FROM geoventra.audit_logs WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
-    const [rows] = await this.database.query(dataSql, params);
-    return { data: rows, meta: { total, page, pageSize } };
+    const rows = await this.database.query(dataSql, params);
+    return { data: rows, meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / Math.max(1, pageSize))) } };
   }
 
   async getLog(id: string) {
     const sql = `SELECT id, user_id, action, entity_type, entity_id, ip_address, user_agent, details, created_at, updated_at FROM geoventra.audit_logs WHERE id = $1`;
-    const [row] = await this.database.query(sql, [id]);
+    const row = await this.database.queryOne<any>(sql, [id]);
     return row ?? null;
   }
 }
