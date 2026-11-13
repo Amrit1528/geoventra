@@ -1,0 +1,79 @@
+@import "@geoventra/ui/styles.css";
+@import "tailwindcss";
+
+/* App-level helpers built on the design tokens. */
+
+code,
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Thin scrollbars for panels. */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--neutral-600) transparent;
+}
+
+/* ── Map markers ─────────────────────────────────────────────────────────── */
+
+.vehicle-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 9999px;
+  transition: transform 120ms ease;
+}
+
+.vehicle-marker:hover {
+  transform: scale(1.15);
+  z-index: 10;
+}
+
+.vehicle-marker--selected {
+  filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.9));
+}
+
+.vehicle-marker--alert::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--red-500);
+  border-radius: 9999px;
+  animation: marker-pulse 1.6s ease-in-out infinite;
+}
+
+.vehicle-marker--offline {
+  opacity: 0.55;
+}
+
+@keyframes marker-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.12); }
+}
+
+.map-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: var(--primary-600);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: transform 120ms ease;
+}
+
+.map-cluster:hover {
+  transform: scale(1.1);
+}
+
