@@ -1,0 +1,32 @@
+{
+  "name": "geoventra",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Geoventra — Intelligent Tracking Mantra. Enterprise fleet management and GPS tracking platform.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.20.0",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "playwright test",
+    "db:setup": "pnpm --filter @geoventra/api db:setup",
+    "db:migrate": "pnpm --filter @geoventra/api db:migrate",
+    "db:seed": "pnpm --filter @geoventra/api db:seed",
+    "db:reset": "pnpm --filter @geoventra/api db:reset",
+    "format": "prettier --write \"**/*.{ts,tsx,css,md,json,yml,yaml}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "prettier": "3.6.2",
+    "turbo": "2.11.10",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@geoventra/gps-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@geoventra/contracts": "workspace:*",
+    "axios": "^1.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "dotenv": "17.2.3",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.1.0"
+  }
+}
