@@ -62,7 +62,7 @@ export class InsuranceService {
     params.push(pageSize, (page - 1) * pageSize);
 
     const [rows] = await this.database.query(dataSql, params);
-    const data = rows.map(r => ({
+    const data = (rows || []).map((r: any) => ({
       ...r,
       status: r.status,
       startDate: r.start_date.toISOString(),
@@ -76,7 +76,7 @@ export class InsuranceService {
   async getDocument(organisationId: string, documentId: string) {
     const sql = `SELECT id, vehicle_id AS vehicleId, document_type, provider, policy_number, document_number, start_date, expiry_date, premium, declared_value, status, coverage_details, document_url, last_reminder_at, created_at FROM geoventra.vehicle_documents WHERE organisation_id = $1 AND id = $2`;
     const [row] = await this.database.query(sql, [organisationId, documentId]);
-    if (!row) throw new NotFoundException('Document not found');
+    if (!row) throw new NotFoundException("Document not found");
     return {
       ...row,
       startDate: row.start_date.toISOString(),
@@ -99,11 +99,11 @@ export class InsuranceService {
       ],
     );
     return {
-      ...row,
-      startDate: row.start_date.toISOString(),
-      expiryDate: row.expiry_date.toISOString(),
-      lastReminderAt: row.last_reminder_at ? row.last_reminder_at.toISOString() : null,
-      createdAt: row.created_at.toISOString(),
+      ...(row ?? {}),
+      startDate: row?.start_date?.toISOString() ?? null,
+      expiryDate: row?.expiry_date?.toISOString() ?? null,
+      lastReminderAt: row?.last_reminder_at ? row.last_reminder_at.toISOString() : null,
+      createdAt: row?.created_at?.toISOString() ?? null,
     };
   }
 

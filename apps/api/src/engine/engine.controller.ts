@@ -73,7 +73,7 @@ export class EngineController {
   @UseGuards(JwtAuthGuard)
   @RequirePermissions('devices.read')
   async dtcs(@Param('vehicleId') vehicleId: string, @Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
-    const parsed = z.object({ page: z.number().min(1).default(1), pageSize: z.number().min(1).max(100).default(50 }).parse(query);
+    const parsed = z.object({ page: z.number().min(1).default(1), pageSize: z.number().min(1).max(100).default(50) }).parse(query);
     return this.engineService.listDtcs(user.organisationId, vehicleId, parsed);
   }
 
@@ -120,7 +120,7 @@ export class EngineController {
   @UseGuards(JwtAuthGuard)
   @RequirePermissions('devices.read')
   async dtcEvents(@Param('vehicleId') vehicleId: string, @Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
-    const parsed = z.object({ page: z.number().min(1).default(1), pageSize: z.number().min(1).max(100).default(50 }).parse(query);
+    const parsed = z.object({ page: z.number().min(1).default(1), pageSize: z.number().min(1).max(100).default(50) }).parse(query);
     return this.engineService.listEngineDTCEvents(user.organisationId, vehicleId, parsed);
   }
 }

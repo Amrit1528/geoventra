@@ -190,67 +190,54 @@ export class DevicesService {
   }
 
   async assignDevice(organisationId: string, deviceId: string, vehicleId: string, input: { assignedBy?: string; reason?: string }) {
-    const tx = this.database.query('transaction');
-    try {
-      const [row] = await tx.query(
+    return this.database.transaction(async (client) => {
+      const result = await client.query(
         `INSERT INTO geoventra.device_assignments (organisation_id, device_id, vehicle_id, assigned_at, assigned_by) VALUES ($1, $2, $3, now(), $4) RETURNING id`,
-        [organisationId, deviceId, vehicleId, input.assignedBy || null],
+        [organisationId, deviceId, vehicleId, input.assignedBy ?? null],
       );
-      await tx.commit();
-      await this.createAssignmentHistory(organisationId, deviceId, vehicleId, 'assigned', input.reason, input.assignedBy);
+      const [row] = result.rows;
+      await this.createAssignmentHistory(organisationId, deviceId, vehicleId, 'assigned', input.reason ?? null, input.assignedBy ?? null);
       return { assigned: true, assignmentId: row.id };
-    } catch (error) {
-      await tx.rollback();
-      throw error;
-    }
+    });
   }
 
   async unassignDevice(organisationId: string, deviceId: string, input: { unassignedBy?: string; reason?: string }) {
-    const tx = this.database.query('transaction');
-    try {
-      await tx.query(
+    return this.database.transaction(async (client) => {
+      await client.query(
         `UPDATE geoventra.device_assignments SET unassigned_at = now() WHERE device_id = $1 AND unassigned_at IS NULL`,
         [deviceId],
       );
-      await tx.commit();
-      await this.createAssignmentHistory(organisationId, deviceId, null, 'unassigned', input.reason, input.unassignedBy);
+      await this.createAssignmentHistory(organisationId, deviceId, null, 'unassigned', input.reason ?? null, input.unassignedBy ?? null);
       return { unassigned: true };
-    } catch (error) {
-      await tx.rollback();
-      throw error;
-    }
+    });
   }
 
   async replaceDevice(organisationId: string, oldDeviceId: string, newDeviceId: string, vehicleId: string) {
-    const tx = this.database.query('transaction');
-    try {
-      await tx.query(
+    return this.database.transaction(async (client) => {
+      await client.query(
         `UPDATE geoventra.device_assignments SET unassigned_at = now() WHERE device_id = $1 AND unassigned_at IS NULL`,
         [oldDeviceId],
       );
-      const [row] = await tx.query(
+      const result = await client.query(
         `INSERT INTO geoventra.device_assignments (organisation_id, device_id, vehicle_id, assigned_at) VALUES ($1, $2, $3, now()) RETURNING id`,
         [organisationId, newDeviceId, vehicleId],
       );
-      await tx.commit();
+      const [row] = result.rows;
       await this.createAssignmentHistory(organisationId, oldDeviceId, vehicleId, 'replaced', 'device replacement', null);
       return { replaced: true, assignmentId: row.id };
-    } catch (error) {
-      await tx.rollback();
-      throw error;
-    }
+    });
   }
 
   async getAssignmentHistory(organisationId: string, deviceId: string, query: { page: number; pageSize: number }) {
     const { page, pageSize } = query;
     const countSql = `SELECT COUNT(*)::int AS total FROM geoventra.device_assignment_history WHERE organisation_id = $1 AND device_id = $2`;
     const countResult = await this.database.query(countSql, [organisationId, deviceId]);
-    const total = countResult.length > 0 ? (countResult[0] as any)?.total ?? 0 : 0;
+    const total = countResult.length > 0 ? Number((countResult[0] as any)?.total ?? 0) : 0;
 
-    const dataSql = `SELECT id, device_id AS deviceId, vehicle_id AS vehicleId, action, reason, performed_by AS performedBy, performed_at AS performedAt FROM geoventra.device_assignment_history WHERE organisation_id = $1 AND device_id = $2 ORDER BY performed_at DESC LIMIT $$3 OFFSET $$4`;
-    const [rows] = await this.database.query(dataSql, [organisationId, deviceId, pageSize, (page - 1) * pageSize]);
+    const dataSql = `SELECT id, device_id AS deviceId, vehicle_id AS vehicleId, action, reason, performed_by AS performedBy, performed_at AS performedAt FROM geoventra.device_assignment_history WHERE organisation_id = $1 AND device_id = $2 ORDER BY performed_at DESC LIMIT $3 OFFSET $4`;
+    const rows = await this.database.query(dataSql, [organisationId, deviceId, pageSize, (page - 1) * pageSize]);
 
-    const data = rows.map(r => ({
+    const data = rows.map((r: any) => ({
       id: r.id,
       deviceId: r.deviceId,
       vehicleId: r.vehicleId,
@@ -263,11 +250,12 @@ export class DevicesService {
     return { data, meta: { total, page, pageSize } };
   }
 
-  private async createAssignmentHistory(organisationId: string, deviceId: string, vehicleId: string, action: string, reason: string | null, performedBy: string | null) {
+  private async createAssignmentHistory(organisationId: string, deviceId: string, vehicleId: string | null, action: string, reason: string | null | undefined, performedBy: string | null | undefined) {
+    const performedBySafe = performedBy ?? null;
     await this.database.query(
       `INSERT INTO geoventra.device_assignment_history (organisation_id, device_id, vehicle_id, action, reason, performed_by) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [organisationId, deviceId, vehicleId, action, reason, performedBy],
+      [organisationId, deviceId, vehicleId, action, reason ?? null, performedBySafe],
     );
-    await this.adminService.createAuditLog(organisationId, performedBy, `DEVICE_${action.toUpperCase()}`, 'device', deviceId, { vehicleId });
+    await this.adminService.createAuditLog(organisationId, performedBySafe, `DEVICE_${action.toUpperCase()}`, 'device', deviceId, { vehicleId });
   }
 }

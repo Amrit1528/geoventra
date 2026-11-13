@@ -35,8 +35,8 @@ const createDeviceSchema = z.object({
   warrantyExpiresAt: z.string().date().optional(),
   lastFirmwareAt: z.string().datetime().optional(),
   connectionMethod: z.string().max(50).optional(),
-  connectionConfig: z.record(z.unknown()).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  connectionConfig: z.record(z.string(), z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const updateDeviceSchema = z.object({
@@ -44,7 +44,7 @@ const updateDeviceSchema = z.object({
   model: z.string().min(1).max(200).optional(),
   firmwareVersion: z.string().optional(),
   provider: z.string().min(1).max(200).optional(),
-  connectionConfig: z.record(z.unknown()).optional(),
+  connectionConfig: z.record(z.string(), z.unknown()).optional(),
   integrationMethod: z.string().max(50).optional(),
   serialNumber: z.string().optional(),
   macAddress: z.string().optional(),
@@ -52,7 +52,7 @@ const updateDeviceSchema = z.object({
   installedAtLocation: z.string().optional(),
   warrantyExpiresAt: z.string().date().optional(),
   lastFirmwareAt: z.string().datetime().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 @Controller('devices')

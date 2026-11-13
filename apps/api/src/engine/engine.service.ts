@@ -115,7 +115,7 @@ export class EngineService {
     const dataSql = `SELECT id, vehicle_id AS vehicleId, rpm, throttle_pct, load_pct, engine_load, sensor_voltage_v, recorded_at, reading_quality, source FROM geoventra.engine_rpm_history WHERE ${where.join(' AND ')} ORDER BY recorded_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
     const [rows] = await this.database.query(dataSql, params);
-    return { data: rows.map(r => ({
+    return { data: (rows || []).map((r: any) => ({
       id: r.id, vehicleId: r.vehicleId, rpm: r.rpm, throttlePct: r.throttlePct, loadPct: r.loadPct, engineLoad: r.engineLoad, sensorVoltageV: r.sensorVoltageV, recordedAt: r.recorded_at.toISOString(), readingQuality: r.reading_quality, source: r.source
     })), meta: { total, page, pageSize } };
   }
@@ -127,7 +127,7 @@ export class EngineService {
     const total = countResult.length > 0 ? (countResult[0] as any)?.total ?? 0 : 0;
     const dataSql = `SELECT id, vehicle_id AS vehicleId, code, description, severity, cleared_at, detected_at FROM geoventra.obd_dtcs WHERE organisation_id = $1 AND vehicle_id = $2 ORDER BY detected_at DESC LIMIT $$3 OFFSET $$4`;
     const [rows] = await this.database.query(dataSql, [organisationId, vehicleId, pageSize, (page - 1) * pageSize]);
-    return { data: rows.map(r => ({
+    return { data: (rows || []).map((r: any) => ({
       id: r.id, vehicleId: r.vehicleId, code: r.code, description: r.description, severity: r.severity, clearedAt: r.cleared_at ? r.cleared_at.toISOString() : null, detectedAt: r.detected_at.toISOString()
     })), meta: { total, page, pageSize } };
   }
@@ -164,7 +164,7 @@ export class EngineService {
     const total = countResult.length > 0 ? (countResult[0] as any)?.total ?? 0 : 0;
     const dataSql = `SELECT id, vehicle_id AS vehicleId, dtc_code, dtc_description, engine_temp_c, rpm, event_type, occurred_at FROM geoventra.engine_dtc_events WHERE organisation_id = $1 AND vehicle_id = $2 ORDER BY occurred_at DESC LIMIT $$3 OFFSET $$4`;
     const [rows] = await this.database.query(dataSql, [organisationId, vehicleId, pageSize, (page - 1) * pageSize]);
-    return { data: rows.map(r => ({
+    return { data: (rows || []).map((r: any) => ({
       id: r.id, vehicleId: r.vehicleId, dtcCode: r.dtc_code, dtcDescription: r.dtc_description, engineTempC: r.engine_temp_c, rpm: r.rpm, eventType: r.event_type, occurredAt: r.occurred_at.toISOString()
     })), meta: { total, page, pageSize } };
   }

@@ -1,13 +1,9 @@
 /**
- * GEOVENTRA — fleet map.
+ * GEOVENTRA — fleet map (Live Fleet command centre).
  *
- * A MapLibre GL map rendering live fleet positions with:
- *   - clustered vehicle markers (supercluster) colour-coded by status
- *   - an alert ring on vehicles with open alerts
- *   - geofence layers (circles approximated as polygons, polygons as GeoJSON fill+line)
- *   - fit-to-fleet triggered by a `fitSignal` counter prop
- *
- * Vehicle positions are provided as a flat list; the map owns marker lifecycle internally.
+ * MapLibre GL map with clustered live vehicle markers, direction-aware icons/labels,
+ * hover summaries, geofence overlays, route/trail visualization and map controls hooks.
+ * Preserves existing tracking functionality while enabling an in-map inspection experience.
  */
 
 'use client';
@@ -15,21 +11,41 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import Supercluster from 'supercluster';
-import type { LivePosition, GeofenceSummary } from '@geoventra/contracts';
+import type { GeofenceSummary, LivePosition, TrackPoint } from '@geoventra/contracts';
 import { cn } from '@geoventra/ui';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 export type MarkerStatus = 'moving' | 'idle' | 'stopped' | 'offline';
 
+export interface FleetRouteStop {
+  id: string;
+  latitude: number;
+  longitude: number;
+  label: string;
+  kind: 'origin' | 'destination' | 'stop';
+  detail?: string;
+}
+
 export interface FleetMapProps {
   positions: LivePosition[];
-  geofences: GeofenceSummary[];
+  geofences?: GeofenceSummary[];
   selectedId: string | null;
   onSelect: (vehicleId: string) => void;
   /** Increment to trigger a fit-to-fleet animation. */
   fitSignal?: number;
-  /** Map class name for layout sizing. */
+  /** Increment to trigger fit-to-selected vehicle. */
+  fitSelectedSignal?: number;
+  /** Increment to trigger fit-to-route/trail bounds. */
+  fitRouteSignal?: number;
   className?: string;
+  showLabels?: boolean;
+  showClusters?: boolean;
+  showGeofences?: boolean;
+  showRoutes?: boolean;
+  showStops?: boolean;
+  /** Trail/route points for the selected vehicle (rendered when showRoutes). */
+  trailPoints?: TrackPoint[] | Array<{ latitude: number; longitude: number; recordedAt?: string }>;
+  routeStops?: FleetRouteStop[];
 }
 
 interface ClusterPointProperties {
@@ -49,17 +65,114 @@ const CLUSTER_RADIUS = 56;
 const MAP_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {},
-  layers: [
-    { id: 'background', type: 'background', paint: { 'background-color': '#0b1220' } },
-  ],
+  layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0b1220' } }],
 };
 
-export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal, className }: FleetMapProps): ReactElement {
+function toDateMs(value: string | null | undefined): number {
+  if (!value) return NaN;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : NaN;
+}
+
+function formatAge(value: string | null | undefined): string {
+  const t = toDateMs(value);
+  if (!Number.isFinite(t)) return 'Unavailable';
+  const diff = Math.max(0, Date.now() - t);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] ?? ch));
+}
+
+function directionLabel(heading: number): string {
+  if (!Number.isFinite(heading)) return 'Unknown';
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const idx = Math.round((((heading % 360) + 360) % 360) / 45) % 8;
+  return `${Math.round(heading)}° ${dirs[idx]}`;
+}
+
+function isHeadingKnown(heading: number): boolean {
+  return Number.isFinite(heading) && heading >= 0;
+}
+
+function hoverCardHtml(p: LivePosition): string {
+  const offline = p.status === 'offline' || (p.ageSeconds ?? 0) > 900;
+  const speed = Number.isFinite(p.speedKph) ? `${p.speedKph.toFixed(0)} km/h` : 'Unavailable';
+  const heading = isHeadingKnown(p.heading) ? directionLabel(p.heading) : 'Unavailable';
+  const location = p.city || (Number.isFinite(p.latitude) && Number.isFinite(p.longitude) ? `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}` : 'Unavailable');
+  const acc = p.accuracyM != null && Number.isFinite(p.accuracyM) ? `${p.accuracyM.toFixed(0)} m` : 'Unavailable';
+  const odo = Number.isFinite(p.odometerKm) ? `${p.odometerKm.toLocaleString()} km` : 'Unavailable';
+  const battery = p.batteryVoltage != null && Number.isFinite(p.batteryVoltage) ? `${p.batteryVoltage.toFixed(1)} V` : 'Unavailable';
+  const last = p.recordedAt ? `${formatAge(p.recordedAt)}${offline ? ' (last known)' : ''}` : 'Unavailable';
+  const trip = p.status === 'moving' ? 'In motion' : p.status === 'idle' ? 'Idle' : p.status === 'stopped' ? 'Stopped' : 'Offline';
+  const origin = 'Unavailable';
+  const dest = 'Unavailable';
+  const duration = offline ? 'Unavailable (offline)' : p.status === 'moving' ? 'Moving (live)' : p.status === 'idle' ? 'Idle (live)' : p.status === 'stopped' ? 'Stationary (live)' : 'Unavailable';
+
+  const rows: Array<[string, string]> = [
+    ['Status', escapeHtml(p.status)],
+    ['Speed', escapeHtml(offline ? `${speed} (last known)` : speed)],
+    ['Direction', escapeHtml(heading)],
+    ['Ignition', p.ignition ? 'On' : 'Off'],
+    ['Driver', escapeHtml(p.driverName ?? 'Unassigned')],
+    ['Location', escapeHtml(location)],
+    ['Last update', escapeHtml(last)],
+    ['GPS accuracy', escapeHtml(acc)],
+    ['Odometer', escapeHtml(odo)],
+    ['Fuel', 'Unavailable'],
+    ['Trip', escapeHtml(trip)],
+    ['Origin', origin],
+    ['Destination', dest],
+    ['Duration/state', escapeHtml(duration)],
+    ['Alerts', String(p.openAlertCount ?? 0)],
+    ['Battery', escapeHtml(battery)],
+  ];
+
+  return `
+    <div class="vehicle-hover-card">
+      <div class="vehicle-hover-card__title">${escapeHtml(p.registrationNumber || 'Vehicle')}</div>
+      <div class="vehicle-hover-card__sub">${escapeHtml([p.name, p.category].filter(Boolean).join(' · ') || 'Fleet vehicle')}</div>
+      <div class="vehicle-hover-card__grid">
+        ${rows.map(([k, v]) => `<div class="vehicle-hover-card__item"><div class="vehicle-hover-card__label">${k}</div><div class="vehicle-hover-card__value" title="${v}">${v}</div></div>`).join('')}
+      </div>
+    </div>`;
+}
+
+export function FleetMap({
+  positions,
+  geofences = [],
+  selectedId,
+  onSelect,
+  fitSignal,
+  fitSelectedSignal,
+  fitRouteSignal,
+  className,
+  showLabels = true,
+  showClusters = true,
+  showGeofences = true,
+  showRoutes = true,
+  showStops = true,
+  trailPoints = [],
+  routeStops = [],
+}: FleetMapProps): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
+  const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [viewport, setViewport] = useState<{ bounds: [number, number, number, number]; zoom: number } | null>(null);
+
+  const positionById = useMemo(() => {
+    const m = new Map<string, LivePosition>();
+    for (const p of positions) m.set(p.vehicleId, p);
+    return m;
+  }, [positions]);
 
   // ── Initialise the map once ───────────────────────────────────────────────
   useEffect(() => {
@@ -77,7 +190,6 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'bottom-right');
     map.on('error', (event: unknown) => {
-      // Raster tiles failing (offline, CSP, rate limit) must not break the canvas.
       const message = (event as { error?: { message?: string } } | undefined)?.error?.message;
       if (message?.includes('Failed to fetch')) return;
       console.warn('[fleet-map]', message ?? String(event));
@@ -94,15 +206,13 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
         map.addLayer({ id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.72 } });
       }
       setMapReady(true);
-      // Ensure correct sizing after initial layout/paint.
       setTimeout(() => map.resize(), 0);
     });
 
+    hoverPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 18, className: 'vehicle-hover-popup' });
     mapRef.current = map;
 
-    const resize = () => {
-      try { map.resize(); } catch { /* map may be disposed during teardown */ }
-    };
+    const resize = () => { try { map.resize(); } catch { /* disposed */ } };
     window.addEventListener('resize', resize);
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
     observer?.observe(container);
@@ -110,6 +220,8 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', resize);
+      hoverPopupRef.current?.remove();
+      hoverPopupRef.current = null;
       for (const marker of markersRef.current.values()) marker.remove();
       markersRef.current.clear();
       map.remove();
@@ -119,95 +231,126 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Viewport tracking ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return undefined;
+    const sync = () => {
+      const b = map.getBounds();
+      setViewport({ bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], zoom: map.getZoom() });
+    };
+    sync();
+    map.on('moveend', sync);
+    map.on('zoomend', sync);
+    return () => { map.off('moveend', sync); map.off('zoomend', sync); };
+  }, [mapReady]);
+
   // ── Geofence layers ───────────────────────────────────────────────────────
-  const geofenceGeoJson = useMemo(
-    () => ({
-      type: 'FeatureCollection' as const,
-      features: geofences.map((geofence) => ({
-        type: 'Feature' as const,
-        properties: { id: geofence.id, name: geofence.name, color: geofence.color },
-        geometry: geofence.geometry ?? circlePolygon(geofence.centerLongitude, geofence.centerLatitude, geofence.radiusM ?? 500),
-      })),
-    }),
-    [geofences],
-  );
+  const geofenceGeoJson = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: geofences.map((g) => ({
+      type: 'Feature' as const,
+      properties: { id: g.id, name: g.name, color: g.color ?? '#0d9488' },
+      geometry: g.geometry ?? circlePolygon(g.centerLongitude, g.centerLatitude, g.radiusM ?? 500),
+    })),
+  }), [geofences]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-
     const sourceId = 'geofences';
-    if (map.getSource(sourceId)) {
+    const fillId = 'geofences-fill';
+    const lineId = 'geofences-outline';
+
+    if (!map.getSource(sourceId)) {
+      map.addSource(sourceId, { type: 'geojson', data: geofenceGeoJson as never });
+      map.addLayer({ id: fillId, type: 'fill', source: sourceId, paint: { 'fill-color': ['coalesce', ['get', 'color'], '#0d9488'], 'fill-opacity': 0.12 } });
+      map.addLayer({ id: lineId, type: 'line', source: sourceId, paint: { 'line-color': ['coalesce', ['get', 'color'], '#0d9488'], 'line-width': 1.5, 'line-opacity': 0.85 } });
+    } else {
       (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(geofenceGeoJson as never);
-      return;
     }
-    map.addSource(sourceId, { type: 'geojson', data: geofenceGeoJson as never });
-    map.addLayer({
-      id: 'geofences-fill',
-      type: 'fill',
-      source: sourceId,
-      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.12 },
-    });
-    map.addLayer({
-      id: 'geofences-outline',
-      type: 'line',
-      source: sourceId,
-      paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.85 },
-    });
-  }, [geofenceGeoJson, mapReady]);
+    const vis = showGeofences ? 'visible' : 'none';
+    if (map.getLayer(fillId)) map.setLayoutProperty(fillId, 'visibility', vis);
+    if (map.getLayer(lineId)) map.setLayoutProperty(lineId, 'visibility', vis);
+  }, [geofenceGeoJson, mapReady, showGeofences]);
+
+  // ── Route/trail layers ────────────────────────────────────────────────────
+  const routeGeoJson = useMemo(() => {
+    const coords = trailPoints
+      .filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
+      .map((p) => [p.longitude, p.latitude] as [number, number]);
+    return {
+      type: 'FeatureCollection' as const,
+      features: coords.length >= 2 ? [{ type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: coords } }] : [],
+    };
+  }, [trailPoints]);
+
+  const stopsGeoJson = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: routeStops
+      .filter((s) => Number.isFinite(s.latitude) && Number.isFinite(s.longitude))
+      .map((s) => ({ type: 'Feature' as const, properties: { label: s.label, kind: s.kind, detail: s.detail ?? '' }, geometry: { type: 'Point' as const, coordinates: [s.longitude, s.latitude] } })),
+  }), [routeStops]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const lineSrc = 'route-trail';
+    const stopSrc = 'route-stops';
+    if (!map.getSource(lineSrc)) {
+      map.addSource(lineSrc, { type: 'geojson', data: routeGeoJson as never });
+      map.addLayer({ id: 'route-trail-line', type: 'line', source: lineSrc, paint: { 'line-color': '#14b8a6', 'line-width': 4, 'line-opacity': 0.85 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+      map.addLayer({ id: 'route-trail-casing', type: 'line', source: lineSrc, paint: { 'line-color': '#134e4a', 'line-width': 7, 'line-opacity': 0.35 }, layout: { 'line-cap': 'round', 'line-join': 'round' } }, 'route-trail-line');
+    } else {
+      (map.getSource(lineSrc) as maplibregl.GeoJSONSource).setData(routeGeoJson as never);
+    }
+    if (!map.getSource(stopSrc)) {
+      map.addSource(stopSrc, { type: 'geojson', data: stopsGeoJson as never });
+      map.addLayer({ id: 'route-stops-circle', type: 'circle', source: stopSrc, paint: {
+        'circle-radius': ['match', ['get', 'kind'], 'origin', 7, 'destination', 7, 5],
+        'circle-color': ['match', ['get', 'kind'], 'origin', '#22c55e', 'destination', '#ef4444', '#f59e0b'],
+        'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2,
+      }});
+    } else {
+      (map.getSource(stopSrc) as maplibregl.GeoJSONSource).setData(stopsGeoJson as never);
+    }
+    const routeVis = showRoutes ? 'visible' : 'none';
+    const stopVis = showRoutes && showStops ? 'visible' : 'none';
+    ['route-trail-line', 'route-trail-casing'].forEach((id) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', routeVis); });
+    if (map.getLayer('route-stops-circle')) map.setLayoutProperty('route-stops-circle', 'visibility', stopVis);
+  }, [mapReady, routeGeoJson, stopsGeoJson, showRoutes, showStops]);
 
   // ── Supercluster ──────────────────────────────────────────────────────────
   const clusterIndex = useMemo(() => {
-    const index = new Supercluster<ClusterPointProperties>({
-      radius: CLUSTER_RADIUS,
-      maxZoom: 16,
-      minPoints: 2,
-    });
+    const index = new Supercluster<ClusterPointProperties>({ radius: CLUSTER_RADIUS, maxZoom: 16, minPoints: 2 });
     index.load(
       positions
-        .filter((position) => Number.isFinite(position.latitude) && Number.isFinite(position.longitude))
-        .map((position) => ({
+        .filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
+        .map((p) => ({
           type: 'Feature',
           properties: {
             cluster: false,
-            vehicleId: position.vehicleId,
-            registrationNumber: position.registrationNumber,
-            status: position.status,
-            speedKph: position.speedKph,
-            ignition: position.ignition,
-            openAlertCount: position.openAlertCount,
-            heading: position.heading,
+            vehicleId: p.vehicleId,
+            registrationNumber: p.registrationNumber,
+            status: p.status,
+            speedKph: p.speedKph,
+            ignition: p.ignition,
+            openAlertCount: p.openAlertCount,
+            heading: p.heading,
           },
-          geometry: { type: 'Point', coordinates: [position.longitude, position.latitude] },
+          geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] },
         })),
     );
     return index;
   }, [positions]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return undefined;
-
-    const syncFromMap = () => {
-      const bounds = map.getBounds();
-      setViewport({
-        bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
-        zoom: map.getZoom(),
-      });
-    };
-    syncFromMap();
-    map.on('moveend', syncFromMap);
-    map.on('zoomend', syncFromMap);
-    return () => {
-      map.off('moveend', syncFromMap);
-      map.off('zoomend', syncFromMap);
-    };
-  }, [mapReady]);
-
   const clusters = useMemo(() => {
     if (!viewport) return [] as ReturnType<typeof clusterIndex.getClusters>;
+    if (!showClusters) {
+      return clusterIndex.getClusters(viewport.bounds, 20); // effectively no clustering
+    }
     return clusterIndex.getClusters(viewport.bounds, Math.floor(viewport.zoom));
-  }, [viewport, clusterIndex]);
+  }, [viewport, clusterIndex, showClusters]);
 
   // ── Marker lifecycle ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -215,9 +358,11 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
     if (!map || !mapReady) return;
 
     const markers = markersRef.current;
+    const popup = hoverPopupRef.current;
     const seen = new Set<string>();
+    const labelVisible = showLabels && (viewport?.zoom ?? 0) >= 11;
 
-    const upsert = (key: string, lng: number, lat: number, create: () => HTMLElement, update?: (element: HTMLElement) => void): void => {
+    const upsert = (key: string, lng: number, lat: number, create: () => HTMLElement, update?: (el: HTMLElement) => void) => {
       seen.add(key);
       const existing = markers.get(key);
       if (existing) {
@@ -225,83 +370,114 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
         if (update) update(existing.getElement());
         return;
       }
-      const marker = new maplibregl.Marker({ element: create() }).setLngLat([lng, lat]).addTo(map);
+      const marker = new maplibregl.Marker({ element: create(), anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
       markers.set(key, marker);
     };
 
     for (const feature of clusters) {
-      const [lng = Number.NaN, lat = Number.NaN] = feature.geometry.coordinates as [number, number];
+      const [lng = NaN, lat = NaN] = (feature.geometry.coordinates ?? []) as [number, number];
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
 
       if ('cluster' in feature.properties && feature.properties.cluster) {
         const clusterId = String(feature.properties.cluster_id);
         const pointCount = feature.properties.point_count ?? 0;
         upsert(`cluster-${clusterId}`, lng, lat, () => {
-          const element = document.createElement('button');
-          element.type = 'button';
-          element.className = 'map-cluster';
-          element.dataset.testid = 'vehicle-cluster';
-          element.setAttribute('aria-label', `${pointCount} vehicles — zoom in`);
-          element.addEventListener('click', (event) => {
-            event.stopPropagation();
-            const expansionZoom = clusterIndex.getClusterExpansionZoom(feature.properties.cluster_id as number);
-            map.easeTo({ center: [lng, lat], zoom: expansionZoom, duration: 400 });
+          const el = document.createElement('button');
+          el.type = 'button';
+          el.className = 'map-cluster';
+          el.dataset.testid = 'vehicle-cluster';
+          el.textContent = String(pointCount);
+          el.setAttribute('aria-label', `${pointCount} vehicles — zoom in`);
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const z = clusterIndex.getClusterExpansionZoom(feature.properties.cluster_id as number);
+            map.easeTo({ center: [lng, lat], zoom: z, duration: 400 });
           });
-          return element;
-        }, (element) => {
-          element.textContent = String(pointCount);
-          element.setAttribute('aria-label', `${pointCount} vehicles — zoom in`);
+          return el;
+        }, (el) => {
+          el.textContent = String(pointCount);
+          el.setAttribute('aria-label', `${pointCount} vehicles — zoom in`);
         });
         continue;
       }
 
       const props = feature.properties;
+      const full = positionById.get(props.vehicleId);
       const isSelected = props.vehicleId === selectedId;
-      const hasAlerts = props.openAlertCount > 0;
+      const hasAlerts = (props.openAlertCount ?? 0) > 0;
+
       upsert(props.vehicleId, lng, lat, () => {
-        const element = document.createElement('button');
-        element.type = 'button';
-        element.className = vehicleMarkerClass(props.status, isSelected, hasAlerts);
-        element.dataset.testid = 'vehicle-marker';
-        element.dataset.vehicleId = props.vehicleId;
-        element.addEventListener('click', (event) => {
-          event.stopPropagation();
-          onSelect(props.vehicleId);
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'vehicle-marker';
+        el.dataset.testid = 'vehicle-marker';
+        el.dataset.vehicleId = props.vehicleId;
+        el.innerHTML = markerInnerHtml(props.registrationNumber, props.status, props.heading, props.speedKph, isSelected, hasAlerts, labelVisible);
+        el.addEventListener('click', (e) => { e.stopPropagation(); onSelect(props.vehicleId); });
+        el.addEventListener('mouseenter', () => {
+          const p = positionById.get(props.vehicleId);
+          if (!p || !popup) return;
+          popup.setLngLat([lng, lat]).setHTML(hoverCardHtml(p)).addTo(map);
         });
-        return element;
-      }, (element) => {
-        element.className = vehicleMarkerClass(props.status, isSelected, hasAlerts);
-        element.innerHTML = vehicleMarkerSvg(props.status, props.heading, props.ignition);
-        element.setAttribute('aria-label', `${props.registrationNumber} — ${props.status}${hasAlerts ? `, ${props.openAlertCount} open alerts` : ''}`);
-        element.title = `${props.registrationNumber} · ${props.speedKph.toFixed(0)} km/h`;
+        el.addEventListener('mouseleave', () => popup?.remove());
+        el.addEventListener('focus', () => {
+          const p = positionById.get(props.vehicleId);
+          if (!p || !popup) return;
+          popup.setLngLat([lng, lat]).setHTML(hoverCardHtml(p)).addTo(map);
+        });
+        el.addEventListener('blur', () => popup?.remove());
+        return el;
+      }, (el) => {
+        el.className = vehicleMarkerClass(props.status, isSelected, hasAlerts);
+        el.innerHTML = markerInnerHtml(props.registrationNumber, props.status, props.heading, props.speedKph, isSelected, hasAlerts, labelVisible);
+        const p = positionById.get(props.vehicleId) ?? full;
+        const aria = `${props.registrationNumber} — ${props.status}${hasAlerts ? `, ${props.openAlertCount} open alerts` : ''}`;
+        el.setAttribute('aria-label', aria);
+        el.title = p ? `${p.registrationNumber} · ${props.speedKph.toFixed(0)} km/h · ${formatAge(p.recordedAt)}` : props.registrationNumber;
       });
     }
 
     for (const [key, marker] of markers) {
-      if (!seen.has(key)) {
-        marker.remove();
-        markers.delete(key);
-      }
+      if (!seen.has(key)) { marker.remove(); markers.delete(key); }
     }
-  }, [clusters, clusterIndex, mapReady, onSelect, selectedId]);
+  }, [clusters, clusterIndex, mapReady, onSelect, selectedId, positionById, showLabels, viewport]);
 
   // ── Fit to fleet ──────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !fitSignal) return;
-    if (positions.length === 0) return;
-
+    if (!map || !mapReady || !fitSignal || positions.length === 0) return;
     const bounds = new maplibregl.LngLatBounds();
-    for (const position of positions) {
-      bounds.extend([position.longitude, position.latitude]);
-    }
-    map.fitBounds(bounds, { padding: 64, maxZoom: 12, duration: 700 });
+    for (const p of positions) bounds.extend([p.longitude, p.latitude]);
+    map.fitBounds(bounds, { padding: 64, maxZoom: 13, duration: 700 });
   }, [fitSignal, mapReady, positions]);
+
+  // ── Fit to selected ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !fitSelectedSignal || !selectedId) return;
+    const p = positionById.get(selectedId);
+    if (!p) return;
+    map.easeTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 14), duration: 600 });
+  }, [fitSelectedSignal, mapReady, selectedId, positionById]);
+
+  // ── Fit to route/trail ────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !fitRouteSignal) return;
+    const coords = [
+      ...trailPoints.filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude)).map((p) => [p.longitude, p.latitude] as [number, number]),
+      ...routeStops.filter((s) => Number.isFinite(s.latitude) && Number.isFinite(s.longitude)).map((s) => [s.longitude, s.latitude] as [number, number]),
+    ];
+    if (coords.length === 0) return;
+    const bounds = new maplibregl.LngLatBounds();
+    for (const c of coords) bounds.extend(c);
+    map.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 700 });
+  }, [fitRouteSignal, mapReady, trailPoints, routeStops]);
 
   return (
     <div
       ref={containerRef}
-      className={cn('h-full w-full overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-surface)]', className)}
+      className={cn('relative h-full w-full overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-surface)]', className)}
       data-testid="fleet-map"
       role="application"
       aria-label="Live fleet map"
@@ -309,13 +485,13 @@ export function FleetMap({ positions, geofences, selectedId, onSelect, fitSignal
   );
 }
 
-// ── Marker helpers ──────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function circlePolygon(lng: number, lat: number, radiusM: number, points = 48): { type: 'Polygon'; coordinates: number[][][] } {
   const coords: [number, number][] = [];
   const latRadius = radiusM / 111_320;
   const lngRadius = radiusM / (111_320 * Math.cos((lat * Math.PI) / 180));
-  for (let i = 0; i <= points; i += 1) {
+  for (let i = 0; i <= points; i++) {
     const angle = (i / points) * 2 * Math.PI;
     coords.push([lng + lngRadius * Math.cos(angle), lat + latRadius * Math.sin(angle)]);
   }
@@ -329,17 +505,27 @@ function vehicleMarkerClass(status: MarkerStatus, selected: boolean, alert: bool
   return classes.join(' ');
 }
 
-function vehicleMarkerSvg(status: MarkerStatus, heading: number, ignition: boolean): string {
-  const rotation = Number.isFinite(heading) ? heading : 0;
-  const fill =
-    status === 'moving'
-      ? ignition
-        ? '#22c55e'
-        : '#16a34a'
-      : status === 'idle'
-        ? '#f59e0b'
-        : status === 'stopped'
-          ? '#94a3b8'
-          : '#334155';
-  return `<svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><path transform="rotate(${rotation} 16 16)" d="M16 2 L26 26 L16 21 L6 26 Z" fill="${fill}" stroke="#0f172a" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+function markerInnerHtml(reg: string, status: MarkerStatus, heading: number, speedKph: number, selected: boolean, alert: boolean, showLabel: boolean): string {
+  const moving = status === 'moving' && speedKph > 1;
+  const knownHeading = isHeadingKnown(heading);
+  const rotation = knownHeading ? ((heading % 360) + 360) % 360 : 0;
+  const fill = status === 'moving' ? '#16a34a' : status === 'idle' ? '#f59e0b' : status === 'stopped' ? '#64748b' : '#475569';
+  const stroke = selected ? '#14b8a6' : '#0f172a';
+  const strokeW = selected ? 2.2 : 1.6;
+
+  let icon: string;
+  if (moving && knownHeading) {
+    // Direction arrow
+    icon = `<svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true"><g transform="rotate(${rotation} 17 17)"><path d="M17 3 L27 27 L17 22 L7 27 Z" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" stroke-linejoin="round"/></g></svg>`;
+  } else if (moving && !knownHeading) {
+    // Moving but unknown direction
+    icon = `<svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true"><circle cx="17" cy="17" r="9" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}"/><path d="M17 8 v6 M17 26 v-6 M8 17 h6 M26 17 h-6" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.9"/></svg>`;
+  } else {
+    // Stationary (idle/stopped/offline): do not show misleading movement arrow
+    const core = status === 'offline' ? '#334155' : fill;
+    icon = `<svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true"><rect x="8" y="10" width="18" height="14" rx="4" fill="${core}" stroke="${stroke}" stroke-width="${strokeW}"/><rect x="11" y="13" width="5" height="4" rx="1" fill="rgba(255,255,255,0.85)"/><rect x="18" y="13" width="5" height="4" rx="1" fill="rgba(255,255,255,0.85)"/><circle cx="12" cy="25.5" r="2" fill="#0f172a"/><circle cx="22" cy="25.5" r="2" fill="#0f172a"/></svg>`;
+  }
+
+  const label = showLabel ? `<span class="vehicle-marker__label">${escapeHtml(reg)}</span>` : '';
+  return `<span class="vehicle-marker__icon">${icon}</span>${label}`;
 }

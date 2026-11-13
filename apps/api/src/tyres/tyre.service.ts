@@ -88,7 +88,7 @@ export class TyreService {
   async getTyre(organisationId: string, tyreId: string) {
     const sql = `SELECT id, vehicle_id AS vehicleId, serial_number, manufacturer, brand, size, category, position, installed_on, installed_odometer_km, purchase_price, warranty_expires_at, expected_service_life_km, current_condition, last_service_at, last_service_odometer_km, last_service_notes, created_at, updated_at FROM geoventra.tyres WHERE organisation_id = $1 AND id = $2`;
     const [row] = await this.database.query(sql, [organisationId, tyreId]);
-    if (!row) throw new NotFoundException('Tyre not found');
+    if (!row) throw new NotFoundException("Tyre not found");
     return row;
   }
 
@@ -158,6 +158,7 @@ export class TyreService {
         input.nextServiceAt || null, input.nextServiceOdometerKm || null,
       ],
     );
+    if (!row) throw new NotFoundException('Tyre service record not found');
     await this.adminService.createAuditLog(organisationId, input.email, `TYRE_${input.action.toUpperCase()}`, 'tyre', row.id, { vehicleId: input.vehicleId });
     return row;
   }
