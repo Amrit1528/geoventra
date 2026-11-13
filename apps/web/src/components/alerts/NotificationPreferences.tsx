@@ -28,7 +28,7 @@ export function NotificationPreferences({
   onChange,
 }: NotificationPreferencesProps): ReactElement {
   const [draft, setDraft] = useState<NotificationPreference[]>(preferences);
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(preferences.length > 0);
 
   if (isLoading) {
     return <LoadingPanel label="Loading notification preferences…" />;

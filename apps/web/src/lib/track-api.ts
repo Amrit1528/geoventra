@@ -79,6 +79,10 @@ export function fetchTripPlayback(tripId: string, signal?: AbortSignal): Promise
 
 // ── Geofences ────────────────────────────────────────────────────────────────
 
+export interface GeofencesQuery {
+  q?: string;
+}
+
 export function fetchGeofences(query: GeofencesQuery = {}, signal?: AbortSignal): Promise<{ data: GeofenceDetail[] }> {
   const search = query.q?.trim();
   return apiRequest<{ data: GeofenceDetail[] }>(
@@ -244,19 +248,4 @@ export function updateNotificationPreferences(preferences: NotificationPreferenc
     method: 'PUT',
     body: preferences,
   });
-}
-
-// ── Geofence search ───────────────────────────────────────────────────────────
-
-export interface GeofencesQuery {
-  q?: string;
-}
-
-/** List geofences, optionally filtered by free-text search. */
-export function fetchGeofences(query: GeofencesQuery = {}, signal?: AbortSignal): Promise<{ data: GeofenceDetail[] }> {
-  const search = query.q?.trim();
-  return apiRequest<{ data: GeofenceDetail[] }>(
-    `/geofences${search ? `?q=${encodeURIComponent(search)}` : ''}`,
-    { signal },
-  );
 }

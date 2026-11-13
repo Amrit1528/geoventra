@@ -126,7 +126,7 @@ export default function AlertsPage(): ReactElement {
               { value: 'resolved', label: 'Resolved' },
               { value: 'all', label: 'All' },
             ]}
-            ariaLabel="Alert status filter"
+            aria-label="Alert status filter"
             className="h-8"
           />
           <Select
@@ -139,7 +139,7 @@ export default function AlertsPage(): ReactElement {
               { value: 'medium', label: 'Medium' },
               { value: 'low', label: 'Low' },
             ]}
-            ariaLabel="Alert severity filter"
+            aria-label="Alert severity filter"
             className="h-8"
           />
           <Select
@@ -149,7 +149,7 @@ export default function AlertsPage(): ReactElement {
               { value: '', label: 'All vehicles' },
               ...vehicles.map((vehicle) => ({ value: vehicle.vehicleId, label: `${vehicle.registrationNumber} — ${vehicle.name}` })),
             ]}
-            ariaLabel="Alert vehicle filter"
+            aria-label="Alert vehicle filter"
             className="h-8"
           />
         </div>

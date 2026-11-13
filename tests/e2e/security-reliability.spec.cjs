@@ -7,14 +7,14 @@ const VEHICLE_1 = 'e1000000-0000-4000-8000-000000000001';
 
 async function adminToken(request) {
   const res = await request.post('http://localhost:4100/api/v1/auth/login', {
-    data: { email: ADMIN.email, password: ADMIN.password },
+    body: { email: ADMIN.email, password: ADMIN.password },
   });
   return (await res.json()).accessToken;
 }
 
 async function northstarToken(request) {
   const res = await request.post('http://localhost:4100/api/v1/auth/login', {
-    data: { email: NORTHSTAR_ADMIN.email, password: NORTHSTAR_ADMIN.password },
+    body: { email: NORTHSTAR_ADMIN.email, password: NORTHSTAR_ADMIN.password },
   });
   return (await res.json()).accessToken;
 }
@@ -28,7 +28,7 @@ test('1. login with invalid credentials returns 401', async ({ request }) => {
 
 test('2. login returns access and refresh tokens', async ({ request }) => {
   const res = await request.post('http://localhost:4100/api/v1/auth/login', {
-    data: { email: ADMIN.email, password: ADMIN.password },
+    body: { email: ADMIN.email, password: ADMIN.password },
   });
   expect(res.status()).toBe(200);
   const body = await res.json();

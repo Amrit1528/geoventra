@@ -250,7 +250,7 @@ export class EngineDiagnosticsRepository {
       sensor_type: row.sensor_type,
       is_calibrated: row.is_calibrated,
       tank_capacity_l: row.tank_capacity_l,
-      calibration_curve: row.calibration_curve ? row.calibration_curve::text : null,
+      calibration_curve: row.calibration_curve ? row.calibration_curve : null,
     }));
   }
 

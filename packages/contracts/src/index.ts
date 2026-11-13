@@ -12,3 +12,4 @@ export * from './geo.js';
 export * from './adapters.js';
 export * from './demo-fleet.js';
 export * from './tracking.js';
+export * from './tpms.js';

@@ -4,20 +4,30 @@ const { test, expect } = require('@playwright/test');
 const ADMIN = { email: 'admin@geoventra.in', password: 'Geoventra@2026' };
 const VEHICLE_1 = 'e1000000-0000-4000-8000-000000000001';
 
+async function signIn(page, credentials) {
+  await page.goto('/login');
+  await page.getByLabel(/email/i).fill(credentials.email);
+  await page.getByLabel(/password/i).fill(credentials.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await page.waitForURL('http://localhost:3100/');
+}
+
 async function adminToken(request) {
   const res = await request.post('http://localhost:4100/api/v1/auth/login', {
-    data: { email: ADMIN.email, password: ADMIN.password },
+    body: { email: ADMIN.email, password: ADMIN.password },
   });
   return (await res.json()).accessToken;
 }
 
 test('1. geofence listing shows seeded geofences', async ({ page }) => {
+  await signIn(page, ADMIN);
   await page.goto('/geofences');
   await expect(page.getByRole('heading', { name: 'Geofences', level: 1 })).toBeVisible();
   await expect(page.getByTestId('geofence-map')).toBeVisible({ timeout: 20_000 });
 });
 
 test('2. geofence creation with a circle', async ({ page }) => {
+  await signIn(page, ADMIN);
   await page.goto('/geofences');
   await page.getByRole('button', { name: /^circle$/i }).click();
   const mapBox = await page.getByTestId('geofence-map').boundingBox();

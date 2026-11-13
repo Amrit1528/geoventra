@@ -97,6 +97,18 @@ export default function GeofencesPage(): ReactElement {
   const geofences = geofencesQuery.data?.data ?? [];
   const fleet = fleetQuery.data?.positions ?? [];
 
+  const [search, setSearch] = useState('');
+  const filteredGeofences = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return geofences;
+    return geofences.filter(
+      (geofence) =>
+        geofence.name.toLowerCase().includes(query) ||
+        (geofence.description ?? '').toLowerCase().includes(query) ||
+        geofence.type.includes(query),
+    );
+  }, [geofences, search]);
+
   // ── Map lifecycle ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return undefined;
@@ -170,14 +182,14 @@ export default function GeofencesPage(): ReactElement {
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    const features = geofences.map((geofence) => ({
+    const features = filteredGeofences.map((geofence) => ({
       type: 'Feature' as const,
       properties: { id: geofence.id, name: geofence.name, color: geofence.color },
       geometry: geofence.geometry ?? circleGeometry(geofence.centerLongitude, geofence.centerLatitude, geofence.radiusM ?? 500),
     }));
     const source = map.getSource('geofences') as maplibregl.GeoJSONSource | undefined;
     source?.setData({ type: 'FeatureCollection', features } as never);
-  }, [geofences, mapReady]);
+  }, [filteredGeofences, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -391,6 +403,17 @@ export default function GeofencesPage(): ReactElement {
 
         {/* Sidebar */}
         <div className="flex min-h-0 flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search geofences…"
+              aria-label="Search geofences"
+              className="h-8 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+            />
+          </div>
+
           <div className="flex items-center gap-1" role="tablist" aria-label="Geofence panel">
             {(['list', 'events'] as Tab[]).map((candidate) => (
               <button
@@ -401,7 +424,7 @@ export default function GeofencesPage(): ReactElement {
                 onClick={() => setTab(candidate)}
                 className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${tab === candidate ? 'bg-[var(--primary-600)] text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]'}`}
               >
-                {candidate === 'list' ? `Geofences (${geofences.length})` : 'Events'}
+                {candidate === 'list' ? `Geofences (${filteredGeofences.length})` : 'Events'}
               </button>
             ))}
           </div>
@@ -532,11 +555,11 @@ export default function GeofencesPage(): ReactElement {
               <CardContent className="max-h-96 overflow-y-auto scroll-thin">
                 {geofencesQuery.isLoading ? (
                   <LoadingPanel label="Loading geofences…" />
-                ) : geofences.length === 0 ? (
+                ) : filteredGeofences.length === 0 ? (
                   <EmptyState title="No geofences yet" description="Draw a circle or polygon on the map to create one." icon={<Hexagon size={22} aria-hidden="true" />} />
                 ) : (
                   <ul className="divide-y divide-[var(--border)]">
-                    {geofences.map((geofence) => (
+                    {filteredGeofences.map((geofence) => (
                       <li key={geofence.id} className="flex items-center justify-between gap-2 py-2">
                         <button type="button" onClick={() => beginEdit(geofence)} className="min-w-0 flex-1 text-left">
                           <span className="flex items-center gap-2">

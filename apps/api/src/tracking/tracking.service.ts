@@ -149,6 +149,7 @@ export class TrackingService {
           continue;
         }
 
+        // Persist GPS and LiveStatus (existing logic)
         await this.persist(binding.organisationId, binding.vehicleId, binding.deviceUuid, event);
 
         // Run the side effects: trip detection and geofence evaluation. Failures are
@@ -200,6 +201,7 @@ export class TrackingService {
 
     return { accepted, rejected, receivedAt: new Date().toISOString() };
   }
+
 
   private async persist(
     organisationId: string,

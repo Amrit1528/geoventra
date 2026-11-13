@@ -12,6 +12,13 @@ async function signIn(page, credentials) {
   await page.waitForURL('http://localhost:3100/');
 }
 
+async function adminToken(request) {
+  const res = await request.post('http://localhost:4100/api/v1/auth/login', {
+    data: { email: ADMIN.email, password: ADMIN.password },
+  });
+  return (await res.json()).accessToken;
+}
+
 test('1. trip listing shows seeded trips with distance and speed', async ({ page }) => {
   await signIn(page, ADMIN);
   await page.goto('/trips');
@@ -67,7 +74,10 @@ test('6. trip playback supports speed controls and timeline seeking', async ({ p
 
 test('7. trip CSV export is downloadable', async ({ page, request }) => {
   await signIn(page, ADMIN);
-  const response = await request.get('http://localhost:4100/api/v1/trips/export.csv');
+  const token = await adminToken(request);
+  const response = await request.get('http://localhost:4100/api/v1/trips/export.csv', {
+    headers: { authorization: token },
+  });
   expect(response.status()).toBe(200);
   expect(response.headers()['content-type']).toMatch(/text\/csv/);
   const body = await response.text();

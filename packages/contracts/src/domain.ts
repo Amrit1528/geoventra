@@ -70,6 +70,16 @@ export const ALERT_TYPES = [
   'stop',
   'fuel_theft',
   'tire_heating',
+  // TPMS (P2)
+  'tpms_low_pressure',
+  'tpms_high_pressure',
+  'tpms_rapid_pressure_loss',
+  'tpms_high_temperature',
+  'tpms_critical_temperature',
+  'tpms_sensor_battery_low',
+  'tpms_sensor_offline',
+  'tpms_sensor_tampering',
+  'tpms_repeated_pressure_loss',
 ] as const;
 export type AlertType = (typeof ALERT_TYPES)[number];
 
@@ -110,6 +120,9 @@ export const PERMISSIONS = [
   'reports.read',
   'maintenance.read',
   'maintenance.write',
+  'tpms.read',
+  'tpms.write',
+  'tpms.ingest',
   'users.read',
   'users.write',
   'roles.read',

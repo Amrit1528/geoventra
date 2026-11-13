@@ -56,7 +56,7 @@ module.exports = defineConfig({
       command: './node_modules/.bin/next start -p 3100',
       cwd: path.join(REPO_ROOT, 'apps/web'),
       port: 3100,
-      reuseExistingServer: false,
+      reuseExistingServer: true,
       timeout: 60_000,
       env: {
         GEOVENTRA_API_URL: 'http://localhost:4100/api/v1',
