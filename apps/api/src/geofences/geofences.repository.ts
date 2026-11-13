@@ -66,7 +66,14 @@ export class GeofencesRepository {
     return rows.map((row) => ({ ...toDefinition(row), vehicleIds: row.vehicle_ids ?? [] }));
   }
 
-  async list(organisationId: string): Promise<GeofenceDetail[]> {
+  async list(organisationId: string, search?: string): Promise<GeofenceDetail[]> {
+    const conditions: string[] = ['g.organisation_id = $1'];
+    const params: unknown[] = [organisationId];
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`(g.name ILIKE $${params.length} OR g.description ILIKE $${params.length})`);
+    }
+
     const rows = await this.database.query<GeofenceListRow>(
       `SELECT g.id, g.name, g.description, g.type, g.center_latitude, g.center_longitude,
               g.radius_m, ST_AsGeoJSON(g.geometry) AS geometry, g.color,
@@ -76,10 +83,10 @@ export class GeofencesRepository {
               g.created_at
          FROM geoventra.geofences g
          LEFT JOIN geoventra.geofence_vehicles gv ON gv.geofence_id = g.id
-        WHERE g.organisation_id = $1
+        WHERE ${conditions.join(' AND ')}
         GROUP BY g.id
         ORDER BY g.created_at DESC`,
-      [organisationId],
+      params,
     );
     return rows.map((row) => ({
       id: row.id,

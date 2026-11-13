@@ -78,8 +78,8 @@ export class NotificationsService {
       );
       const enabled = preference ? preference.enabled : true;
       const minSeverity = preference?.minSeverity ?? DEFAULT_MIN_SEVERITY;
-      const severityRank = SEVERITY_RANK[input.severity] ?? SEVERITY_RANK[DEFAULT_MIN_SEVERITY];
-      const minRank = SEVERITY_RANK[minSeverity] ?? SEVERITY_RANK[DEFAULT_MIN_SEVERITY];
+      const severityRank = SEVERITY_RANK[input.severity] ?? SEVERITY_RANK[DEFAULT_MIN_SEVERITY] ?? 0;
+      const minRank = SEVERITY_RANK[minSeverity] ?? SEVERITY_RANK[DEFAULT_MIN_SEVERITY] ?? 0;
 
       if (!enabled) continue;
       if (severityRank < minRank) continue;

@@ -9,13 +9,22 @@
  *   PUT    /api/v1/notifications/preferences   update a preference
  */
 
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { RequirePermissions } from '../common/auth/permissions.decorator.js';
 import { CurrentUser } from '../common/auth/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user.interface.js';
 import type { Notification, NotificationPreference } from '@geoventra/contracts';
 import { NotificationsService } from './notifications.service.js';
 import { type NotificationListFilters } from './notifications.repository.js';
+
+/** Query parameters accepted by `GET /notifications`. */
+interface NotificationListQuery {
+  read?: boolean;
+  severity?: string;
+  limit?: number;
+  page?: number;
+  pageSize?: number;
+}
 
 @Controller('notifications')
 export class NotificationsController {
@@ -25,14 +34,14 @@ export class NotificationsController {
   @RequirePermissions('alerts.read')
   async list(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: unknown,
+    @Query() query: NotificationListQuery,
   ): Promise<{ data: Notification[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }> {
     const filters: NotificationListFilters = {
-      read: query && typeof query.read === 'boolean' ? query.read : undefined,
-      severity: typeof query?.severity === 'string' ? query.severity : undefined,
-      limit: query && typeof query.limit === 'number' ? query.limit : undefined,
-      page: query && typeof query.page === 'number' ? query.page : undefined,
-      pageSize: query && typeof query.pageSize === 'number' ? query.pageSize : undefined,
+      read: query.read,
+      severity: query.severity,
+      limit: query.limit,
+      page: query.page,
+      pageSize: query.pageSize,
     };
     const page = await this.notificationsService.list(user.organisationId, user.id, filters);
     return page;

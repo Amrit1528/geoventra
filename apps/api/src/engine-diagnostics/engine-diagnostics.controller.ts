@@ -276,6 +276,16 @@ export class EngineDiagnosticsController {
     return this.engineService.acknowledgeAlert(user.organisationId, id, user.id);
   }
 
+  @Post('alerts/:id/resolve')
+  @HttpCode(200)
+  @RequirePermissions('engine.write')
+  async resolveAlert(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<EngineHealthAlert> {
+    return this.engineService.resolveAlert(user.organisationId, id, user.id);
+  }
+
   // ── Ingestion ────────────────────────────────────────────────────────────
 
   /**

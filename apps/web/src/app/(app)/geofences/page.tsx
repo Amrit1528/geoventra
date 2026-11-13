@@ -86,7 +86,7 @@ export default function GeofencesPage(): ReactElement {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const geofencesQuery = useQuery({ queryKey: ['geofences'], queryFn: ({ signal }) => fetchGeofences(signal) });
+  const geofencesQuery = useQuery({ queryKey: ['geofences'], queryFn: ({ signal }) => fetchGeofences({}, signal) });
   const eventsQuery = useQuery({
     queryKey: ['geofence-events'],
     queryFn: ({ signal }) => fetchGeofenceEvents({ limit: 30 }, signal),

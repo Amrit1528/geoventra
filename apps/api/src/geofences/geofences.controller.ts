@@ -12,14 +12,14 @@
  *   PUT    /api/v1/geofences/:id/vehicles
  */
 
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import {
   RequirePermissions,
 } from '../common/auth/permissions.decorator.js';
 import { CurrentUser } from '../common/auth/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user.interface.js';
-import type { GeofenceDetail, GeofenceEvent } from '@geoventra/contracts';
+import type { AlertSummary, GeofenceDetail, GeofenceEvent } from '@geoventra/contracts';
 import { GeofencesService } from './geofences.service.js';
 
 const geometrySchema = z.object({
@@ -69,8 +69,12 @@ export class GeofencesController {
 
   @Get()
   @RequirePermissions('geofences.read')
-  async list(@CurrentUser() user: AuthenticatedUser): Promise<{ data: GeofenceDetail[] }> {
-    const data = await this.geofencesService.list(user.organisationId);
+  async list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: unknown,
+  ): Promise<{ data: GeofenceDetail[] }> {
+    const parsed = z.object({ q: z.string().trim().min(1).max(120).optional() }).parse(query ?? {});
+    const data = await this.geofencesService.list(user.organisationId, parsed.q);
     return { data };
   }
 
@@ -83,6 +87,53 @@ export class GeofencesController {
     const parsed = eventsQuerySchema.parse(query ?? {});
     const data = await this.geofencesService.listEvents(user.organisationId, parsed);
     return { data };
+  }
+
+  @Get('alerts')
+  @RequirePermissions('alerts.read')
+  async alerts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: unknown,
+  ): Promise<{ data: AlertSummary[] }> {
+    const parsed = z
+      .object({
+        type: z.string().optional(),
+        severity: z.enum(['critical', 'high', 'medium', 'low']).optional(),
+        status: z.enum(['open', 'acknowledged', 'resolved']).optional(),
+        vehicleId: z.string().uuid().optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+      })
+      .parse(query ?? {});
+    const data = await this.geofencesService.listAlerts(user.organisationId, parsed);
+    return { data };
+  }
+
+  @Post('alerts/:id/acknowledge')
+  @HttpCode(200)
+  @RequirePermissions('alerts.write')
+  async acknowledgeAlert(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<AlertSummary> {
+    const alert = await this.geofencesService.acknowledgeAlert(user.organisationId, id, user.id);
+    if (!alert) {
+      throw new NotFoundException(`Alert ${id} was not found`);
+    }
+    return alert;
+  }
+
+  @Post('alerts/:id/resolve')
+  @HttpCode(200)
+  @RequirePermissions('alerts.write')
+  async resolveAlert(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<AlertSummary> {
+    const alert = await this.geofencesService.resolveAlert(user.organisationId, id, user.id);
+    if (!alert) {
+      throw new NotFoundException(`Alert ${id} was not found`);
+    }
+    return alert;
   }
 
   @Get(':id')
@@ -172,5 +223,16 @@ export class GeofencesController {
   ): Promise<GeofenceDetail> {
     const parsed = assignmentSchema.parse(body);
     return this.geofencesService.setVehicles(user.organisationId, id, parsed.vehicleIds);
+  }
+
+  @Put(':id/fleets')
+  @RequirePermissions('geofences.write')
+  async setFleets(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ): Promise<GeofenceDetail> {
+    const parsed = z.object({ fleetId: z.string().uuid() }).parse(body);
+    return this.geofencesService.assignFleet(user.organisationId, id, parsed.fleetId);
   }
 }

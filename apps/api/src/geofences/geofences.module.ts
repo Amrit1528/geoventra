@@ -9,8 +9,10 @@ import { Module } from '@nestjs/common';
 import { GeofencesController } from './geofences.controller.js';
 import { GeofencesService } from './geofences.service.js';
 import { GeofencesRepository } from './geofences.repository.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 @Module({
+  imports: [NotificationsModule],
   controllers: [GeofencesController],
   providers: [GeofencesService, GeofencesRepository],
   exports: [GeofencesService],

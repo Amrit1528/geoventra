@@ -43,6 +43,7 @@ import {
 import { computeEngineHealthScore } from './engine-health-score.js';
 import { isLiveDtc, transitionDtc } from './engine-dtc.lifecycle.js';
 
+
 export interface EngineIngestTelemetryCommand {
   vehicleId: string;
   deviceId?: string | null;
@@ -55,6 +56,15 @@ export interface EngineIngestTelemetryCommand {
     sourceClassification?: SourceClassification;
     dataQuality?: 'good' | 'uncertain' | 'invalid';
     protocolMetadata?: Record<string, unknown>;
+    // --- FUEL EXTENSIONS ---
+    fuelLevel?: number | null;
+    fuelPercentage?: number | null;
+    tankCapacity?: number | null;
+    fuelConsumptionRate?: number | null;
+    odometerKm?: number | null;
+    gpsLatitude?: number | null;
+    gpsLongitude?: number | null;
+    ignition?: boolean | null;
   }>;
 }
 
@@ -448,6 +458,24 @@ export class EngineDiagnosticsService {
     userId: string,
   ): Promise<EngineHealthAlert> {
     const alert = await this.repository.acknowledgeAlert(organisationId, alertId, userId);
+    if (!alert) {
+      throw new NotFoundException(`Alert ${alertId} was not found`);
+    }
+    this.events.publish({
+      type: 'engine.alert',
+      vehicleId: alert.vehicleId,
+      alert,
+      emittedAt: new Date().toISOString(),
+    });
+    return alert;
+  }
+
+  async resolveAlert(
+    organisationId: string,
+    alertId: string,
+    userId: string | null,
+  ): Promise<EngineHealthAlert> {
+    const alert = await this.repository.resolveAlert(organisationId, alertId, userId);
     if (!alert) {
       throw new NotFoundException(`Alert ${alertId} was not found`);
     }

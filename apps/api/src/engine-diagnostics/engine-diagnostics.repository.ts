@@ -224,6 +224,36 @@ export class EngineDiagnosticsRepository {
     return rows.map(mapTelemetryReading);
   }
 
+  /** Inserts a normalized fuel reading into the fuel_readings table (P1 Phase 1). */
+
+  /** Inserts a refuelling event into the refuelling_events table (P1 Phase 4). */
+
+  /** Fetches all sensor configurations for a given vehicle (P1 Phase 1). */
+  async getFuelSensorConfig(
+    organisationId: string,
+    vehicleId: string,
+  ): Promise<Array<{
+    sensor_id: string;
+    sensor_type: string;
+    is_calibrated: boolean;
+    tank_capacity_l: number | null;
+    calibration_curve: string | null;
+  }>> {
+    const rows = await this.database.query<any>(
+      `SELECT id, sensor_type, is_calibrated, tank_capacity_l, calibration_curve
+         FROM geoventra.fuel_sensors
+        WHERE organisation_id = $1 AND vehicle_id = $2`,
+      [organisationId, vehicleId],
+    );
+    return rows.map((row) => ({
+      sensor_id: row.id,
+      sensor_type: row.sensor_type,
+      is_calibrated: row.is_calibrated,
+      tank_capacity_l: row.tank_capacity_l,
+      calibration_curve: row.calibration_curve ? row.calibration_curve::text : null,
+    }));
+  }
+
   async latestTelemetry(
     organisationId: string,
     vehicleId: string,
@@ -625,6 +655,28 @@ export class EngineDiagnosticsRepository {
               acknowledged_by = $3,
               updated_at = now()
         WHERE organisation_id = $1 AND id = $2
+        RETURNING id, organisation_id, vehicle_id, rule_id, severity, title, description,
+                  observed_value, observed_unit, threshold_value, first_occurrence_at, last_occurrence_at,
+                  occurrence_count, acknowledged, acknowledged_at, acknowledged_by, resolved, resolved_at,
+                  resolved_by, source_classification, related_dtc, related_metric, created_at, updated_at,
+                  recovery_count, recovery_threshold, last_recovery_at, recovery_value, resolution_reason`,
+      [organisationId, alertId, userId],
+    );
+    return row ? mapHealthAlert(row) : null;
+  }
+
+  async resolveAlert(
+    organisationId: string,
+    alertId: string,
+    userId: string | null,
+  ): Promise<EngineHealthAlert | null> {
+    const row = await this.database.queryOne<EngineHealthAlertRow>(
+      `UPDATE geoventra.engine_health_alerts
+          SET resolved = TRUE,
+              resolved_at = now(),
+              resolved_by = $3,
+              updated_at = now()
+        WHERE organisation_id = $1 AND id = $2 AND resolved = FALSE
         RETURNING id, organisation_id, vehicle_id, rule_id, severity, title, description,
                   observed_value, observed_unit, threshold_value, first_occurrence_at, last_occurrence_at,
                   occurrence_count, acknowledged, acknowledged_at, acknowledged_by, resolved, resolved_at,

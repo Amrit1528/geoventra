@@ -14,6 +14,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import TrackingPage from './page';
 import { useAuthStore } from '@/lib/auth-store';
+import type { TrackingSnapshot } from '@geoventra/contracts';
 import { fetchSnapshot } from '@/lib/track-api';
 import {
   connectTrackingSocket,
@@ -262,13 +263,13 @@ describe('Live Tracking page', () => {
 
     // Wait for the query to populate, then apply a live-position update.
     await waitFor(() => {
-      expect(client.getQueryData(['tracking-snapshot'])?.positions).toHaveLength(1);
+      expect((client.getQueryData(['tracking-snapshot']) as TrackingSnapshot | undefined)?.positions).toHaveLength(1);
     });
 
     positionListener?.(updated);
 
     await waitFor(() => {
-      expect(client.getQueryData(['tracking-snapshot'])?.positions).toHaveLength(1);
+      expect((client.getQueryData(['tracking-snapshot']) as TrackingSnapshot | undefined)?.positions).toHaveLength(1);
     });
   });
 

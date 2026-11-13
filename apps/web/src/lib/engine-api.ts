@@ -281,3 +281,11 @@ export function acknowledgeEngineAlert(alertId: string): Promise<EngineHealthAle
     body: {},
   });
 }
+
+/** Resolve an engine health alert. */
+export function resolveEngineAlert(alertId: string): Promise<EngineHealthAlert> {
+  return apiRequest<EngineHealthAlert>(`/engine/alerts/${encodeURIComponent(alertId)}/resolve`, {
+    method: 'POST',
+    body: {},
+  });
+}

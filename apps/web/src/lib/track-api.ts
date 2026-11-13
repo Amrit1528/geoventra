@@ -6,9 +6,12 @@
  */
 
 import type {
+  AlertSummary,
   GeofenceDetail,
   GeofenceEvent,
   GeofenceUpsert,
+  Notification,
+  NotificationPreference,
   TripPlayback,
   TripSummary,
 } from '@geoventra/contracts';
@@ -76,8 +79,12 @@ export function fetchTripPlayback(tripId: string, signal?: AbortSignal): Promise
 
 // ── Geofences ────────────────────────────────────────────────────────────────
 
-export function fetchGeofences(signal?: AbortSignal): Promise<{ data: GeofenceDetail[] }> {
-  return apiRequest<{ data: GeofenceDetail[] }>('/geofences', { signal });
+export function fetchGeofences(query: GeofencesQuery = {}, signal?: AbortSignal): Promise<{ data: GeofenceDetail[] }> {
+  const search = query.q?.trim();
+  return apiRequest<{ data: GeofenceDetail[] }>(
+    `/geofences${search ? `?q=${encodeURIComponent(search)}` : ''}`,
+    { signal },
+  );
 }
 
 export function fetchGeofence(geofenceId: string, signal?: AbortSignal): Promise<GeofenceDetail> {
@@ -126,4 +133,130 @@ export function fetchGeofenceEvents(
     },
     signal,
   });
+}
+
+export interface GeofenceAlertsQuery {
+  type?: string;
+  severity?: string;
+  status?: string;
+  vehicleId?: string;
+  limit?: number;
+}
+
+/** List the alerts raised by the geofence engine. */
+export function fetchGeofenceAlerts(
+  query: GeofenceAlertsQuery = {},
+  signal?: AbortSignal,
+): Promise<{ data: AlertSummary[] }> {
+  return apiRequest<{ data: AlertSummary[] }>('/geofences/alerts', {
+    query: {
+      type: query.type,
+      severity: query.severity,
+      status: query.status,
+      vehicleId: query.vehicleId,
+      limit: query.limit,
+    },
+    signal,
+  });
+}
+
+/** Acknowledge a geofence alert. */
+export function acknowledgeGeofenceAlert(alertId: string): Promise<AlertSummary> {
+  return apiRequest<AlertSummary>(`/geofences/alerts/${encodeURIComponent(alertId)}/acknowledge`, {
+    method: 'POST',
+    body: {},
+  });
+}
+
+/** Resolve a geofence alert. */
+export function resolveGeofenceAlert(alertId: string): Promise<AlertSummary> {
+  return apiRequest<AlertSummary>(`/geofences/alerts/${encodeURIComponent(alertId)}/resolve`, {
+    method: 'POST',
+    body: {},
+  });
+}
+
+/** Assign a fleet (vehicle group) to a geofence. */
+export function setGeofenceFleet(geofenceId: string, fleetId: string): Promise<GeofenceDetail> {
+  return apiRequest<GeofenceDetail>(`/geofences/${encodeURIComponent(geofenceId)}/fleets`, {
+    method: 'PUT',
+    body: { fleetId },
+  });
+}
+
+// ── Notifications ────────────────────────────────────────────────────────────
+
+export interface NotificationsQuery {
+  read?: boolean;
+  severity?: string;
+  limit?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export function buildNotificationsQuery(query: NotificationsQuery = {}): QueryParams {
+  return {
+    read: query.read,
+    severity: query.severity,
+    limit: query.limit,
+    page: query.page,
+    pageSize: query.pageSize,
+  };
+}
+
+/** List the current user's in-app notifications (unread first). */
+export function fetchNotifications(
+  query: NotificationsQuery = {},
+  signal?: AbortSignal,
+): Promise<{ data: Notification[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }> {
+  return apiRequest<{ data: Notification[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }>(
+    '/notifications',
+    { query: buildNotificationsQuery(query), signal },
+  );
+}
+
+/** Unread notification counter for the badge. */
+export function fetchUnreadNotificationCount(signal?: AbortSignal): Promise<{ count: number }> {
+  return apiRequest<{ count: number }>('/notifications/unread-count', { signal });
+}
+
+/** Mark a single notification as read. */
+export function markNotificationRead(notificationId: string): Promise<Notification> {
+  return apiRequest<Notification>(`/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: 'POST',
+    body: {},
+  });
+}
+
+/** Mark every notification of the user as read. */
+export function markAllNotificationsRead(): Promise<{ count: number }> {
+  return apiRequest<{ count: number }>('/notifications/read-all', { method: 'POST', body: {} });
+}
+
+/** Per-user notification channel preferences. */
+export function fetchNotificationPreferences(signal?: AbortSignal): Promise<NotificationPreference[]> {
+  return apiRequest<NotificationPreference[]>('/notifications/preferences', { signal });
+}
+
+/** Upsert a notification channel preference. */
+export function updateNotificationPreferences(preferences: NotificationPreference[]): Promise<NotificationPreference[]> {
+  return apiRequest<NotificationPreference[]>('/notifications/preferences', {
+    method: 'PUT',
+    body: preferences,
+  });
+}
+
+// ── Geofence search ───────────────────────────────────────────────────────────
+
+export interface GeofencesQuery {
+  q?: string;
+}
+
+/** List geofences, optionally filtered by free-text search. */
+export function fetchGeofences(query: GeofencesQuery = {}, signal?: AbortSignal): Promise<{ data: GeofenceDetail[] }> {
+  const search = query.q?.trim();
+  return apiRequest<{ data: GeofenceDetail[] }>(
+    `/geofences${search ? `?q=${encodeURIComponent(search)}` : ''}`,
+    { signal },
+  );
 }

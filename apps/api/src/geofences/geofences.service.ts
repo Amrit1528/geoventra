@@ -8,11 +8,13 @@
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type {
+  AlertSummary,
   GeofenceDetail,
   GeofenceEvent,
   GeofenceSummary,
 } from '@geoventra/contracts';
 import { DatabaseService } from '../common/infrastructure/database.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import {
   GeofencesRepository,
   type GeofenceEventRow,
@@ -38,6 +40,28 @@ export interface GeofenceUpsertInput {
   vehicleIds?: string[];
 }
 
+/** Alert row shape as returned by the `geoventra.alerts` table. */
+interface AlertRow {
+  id: string;
+  type: string;
+  severity: string;
+  status: string;
+  title: string;
+  message: string;
+  vehicle_id: string | null;
+  driver_id: string | null;
+  driver_name: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  occurred_at: Date;
+  acknowledged_at: Date | null;
+  acknowledged_by: string | null;
+  resolved_at: Date | null;
+  resolved_by: string | null;
+  dedupe_key: string | null;
+  metadata: unknown;
+}
+
 @Injectable()
 export class GeofencesService {
   private readonly logger = new Logger(GeofencesService.name);
@@ -45,12 +69,13 @@ export class GeofencesService {
   constructor(
     private readonly repository: GeofencesRepository,
     private readonly database: DatabaseService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ── Queries ──────────────────────────────────────────────────────────────
 
-  async list(organisationId: string): Promise<GeofenceDetail[]> {
-    return this.repository.list(organisationId);
+  async list(organisationId: string, search?: string): Promise<GeofenceDetail[]> {
+    return this.repository.list(organisationId, search);
   }
 
   async getById(organisationId: string, geofenceId: string): Promise<GeofenceDetail> {
@@ -164,6 +189,163 @@ export class GeofencesService {
     return this.getById(organisationId, geofenceId);
   }
 
+  /**
+   * Assign a fleet (organisation vehicle group) to a geofence. The fleet resolves to the
+   * member vehicles of the group, which are then used as the geofence scope.
+   */
+  async assignFleet(
+    organisationId: string,
+    geofenceId: string,
+    fleetId: string,
+  ): Promise<GeofenceDetail> {
+    await this.getById(organisationId, geofenceId); // 404 guard
+    const vehicles = await this.database.query<{ id: string }>(
+      `SELECT id FROM geoventra.vehicles WHERE organisation_id = $1 AND group_id = $2`,
+      [organisationId, fleetId],
+    );
+    const vehicleIds = vehicles.map((vehicle) => vehicle.id);
+    await this.repository.setVehicles(organisationId, geofenceId, vehicleIds);
+    return this.getById(organisationId, geofenceId);
+  }
+
+  // ── Alert lifecycle ──────────────────────────────────────────────────────────
+
+  async listAlerts(
+    organisationId: string,
+    filters: { type?: string; severity?: string; status?: string; vehicleId?: string; limit?: number },
+  ): Promise<AlertSummary[]> {
+    const conditions: string[] = ['organisation_id = $1'];
+    const params: unknown[] = [organisationId];
+    if (filters.vehicleId) {
+      params.push(filters.vehicleId);
+      conditions.push(`vehicle_id = $${params.length}`);
+    }
+    if (filters.type) {
+      params.push(filters.type);
+      conditions.push(`type = $${params.length}`);
+    }
+    if (filters.severity) {
+      params.push(filters.severity);
+      conditions.push(`severity = $${params.length}`);
+    }
+    if (filters.status) {
+      params.push(filters.status);
+      conditions.push(`status = $${params.length}`);
+    }
+
+    const rows = await this.database.query<AlertRow>(
+      `SELECT id, type, severity, status, title, message, vehicle_id, driver_id, driver_name,
+              latitude, longitude, occurred_at, acknowledged_at, acknowledged_by, resolved_at,
+              resolved_by, dedupe_key, metadata
+         FROM geoventra.alerts
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY occurred_at DESC
+        LIMIT $${params.length + 1}`,
+      [...params, filters.limit ?? 50],
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type as AlertSummary['type'],
+      severity: row.severity as AlertSummary['severity'],
+      status: row.status as AlertSummary['status'],
+      title: row.title,
+      message: row.message,
+      vehicleId: row.vehicle_id,
+      vehicleRegistration: null,
+      driverId: row.driver_id,
+      driverName: row.driver_name,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      occurredAt: row.occurred_at.toISOString(),
+      acknowledgedAt: row.acknowledged_at ? row.acknowledged_at.toISOString() : null,
+      acknowledgedBy: row.acknowledged_by,
+      resolvedAt: row.resolved_at ? row.resolved_at.toISOString() : null,
+      resolvedBy: row.resolved_by,
+      metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    }));
+  }
+
+  async acknowledgeAlert(
+    organisationId: string,
+    alertId: string,
+    userId: string | null,
+  ): Promise<AlertSummary | null> {
+    const row = await this.database.queryOne<AlertRow>(
+      `UPDATE geoventra.alerts
+          SET status = 'acknowledged',
+              acknowledged_at = now(),
+              acknowledged_by = $3,
+              updated_at = now()
+        WHERE organisation_id = $1 AND id = $2 AND status <> 'resolved'
+        RETURNING id, type, severity, status, title, message, vehicle_id, driver_id, driver_name,
+                  latitude, longitude, occurred_at, acknowledged_at, acknowledged_by, resolved_at,
+                  resolved_by, dedupe_key, metadata`,
+      [organisationId, alertId, userId],
+    );
+    if (!row) return null;
+    return {
+      id: row.id,
+      type: row.type as AlertSummary['type'],
+      severity: row.severity as AlertSummary['severity'],
+      status: 'acknowledged',
+      title: row.title,
+      message: row.message,
+      vehicleId: row.vehicle_id,
+      vehicleRegistration: null,
+      driverId: row.driver_id,
+      driverName: row.driver_name,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      occurredAt: row.occurred_at.toISOString(),
+      acknowledgedAt: row.acknowledged_at ? row.acknowledged_at.toISOString() : null,
+      acknowledgedBy: row.acknowledged_by,
+      resolvedAt: row.resolved_at ? row.resolved_at.toISOString() : null,
+      resolvedBy: row.resolved_by,
+      metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    };
+  }
+
+  async resolveAlert(
+    organisationId: string,
+    alertId: string,
+    userId: string | null,
+  ): Promise<AlertSummary | null> {
+    const row = await this.database.queryOne<AlertRow>(
+      `UPDATE geoventra.alerts
+          SET status = 'resolved',
+              resolved_at = now(),
+              resolved_by = $3,
+              updated_at = now()
+        WHERE organisation_id = $1 AND id = $2 AND status <> 'resolved'
+        RETURNING id, type, severity, status, title, message, vehicle_id, driver_id, driver_name,
+                  latitude, longitude, occurred_at, acknowledged_at, acknowledged_by, resolved_at,
+                  resolved_by, dedupe_key, metadata`,
+      [organisationId, alertId, userId],
+    );
+    if (!row) return null;
+    return {
+      id: row.id,
+      type: row.type as AlertSummary['type'],
+      severity: row.severity as AlertSummary['severity'],
+      status: 'resolved',
+      title: row.title,
+      message: row.message,
+      vehicleId: row.vehicle_id,
+      vehicleRegistration: null,
+      driverId: row.driver_id,
+      driverName: row.driver_name,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      occurredAt: row.occurred_at.toISOString(),
+      acknowledgedAt: row.acknowledged_at ? row.acknowledged_at.toISOString() : null,
+      acknowledgedBy: row.acknowledged_by,
+      resolvedAt: row.resolved_at ? row.resolved_at.toISOString() : null,
+      resolvedBy: row.resolved_by,
+      metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    };
+  }
+
   /** A geofence applies to a vehicle when it has no assignment (all vehicles) or lists it. */
   private geofenceApplies(
     geofence: GeofenceDefinition & { vehicleIds: string[] },
@@ -174,12 +356,16 @@ export class GeofencesService {
     return assigned.includes(vehicleId);
   }
 
-  // ── Ingest-time evaluation ───────────────────────────────────────────────
+  // ── Ingest-time evaluation ────────────────────────────────────────────────────────────
+
+  /** Excessive-dwell threshold in seconds (configurable through the environment). */
+  private readonly dwellAlertSeconds: number;
 
   /**
    * Evaluate one ingested position against every applicable geofence.
    * Creates/updates the persisted state, emits a geofence event and (when the geofence
-   * asks for it) raises a low-severity alert with hourly de-duplication.
+   * asks for it) raises an alert with hourly de-duplication. Vehicles that stay inside a
+   * boundary longer than the dwell threshold raise an excessive-dwell alert.
    */
   async ingestSample(
     organisationId: string,
@@ -194,6 +380,7 @@ export class GeofencesService {
 
     const state = await this.repository.stateFor(organisationId, vehicleId);
     const created: Array<'entry' | 'exit'> = [];
+    const entryTimestamps = new Map<string, Date>();
 
     for (const geofence of geofences) {
       // Assignment scope: no rows = every vehicle, otherwise only the listed ones.
@@ -205,21 +392,21 @@ export class GeofencesService {
       const eventType = evaluateGeofenceTransition(wasInside, isInside);
 
       await this.repository.upsertState(organisationId, geofence.id, vehicleId, isInside, recordedAt);
-      if (!eventType) continue;
-
-      await this.repository.insertEvent(
-        organisationId,
-        geofence.id,
-        vehicleId,
-        eventType,
-        latitude,
-        longitude,
-        recordedAt,
-      );
-      created.push(eventType);
+      if (eventType) {
+        await this.repository.insertEvent(
+          organisationId,
+          geofence.id,
+          vehicleId,
+          eventType,
+          latitude,
+          longitude,
+          recordedAt,
+        );
+        created.push(eventType);
+      }
 
       const shouldAlert = eventType === 'entry' ? geofence.alertOnEntry : geofence.alertOnExit;
-      if (shouldAlert) {
+      if (eventType && shouldAlert) {
         await this.raiseAlert(
           organisationId,
           vehicleId,
@@ -230,6 +417,34 @@ export class GeofencesService {
           longitude,
           recordedAt,
         );
+      }
+
+      const entryKey = `${geofence.id}:${vehicleId}`;
+      if (isInside) {
+        const entryAt = eventType === 'entry' ? recordedAt : (entryTimestamps.get(entryKey) ?? recordedAt);
+        entryTimestamps.set(entryKey, entryAt);
+        const dwellSeconds = (recordedAt.getTime() - entryAt.getTime()) / 1000;
+        if (dwellSeconds >= this.dwellAlertSeconds) {
+          entryTimestamps.delete(entryKey);
+          await this.raiseAlert(
+            organisationId,
+            vehicleId,
+            registrationNumber,
+            geofence,
+            'entry',
+            latitude,
+            longitude,
+            recordedAt,
+            {
+              alertType: 'long_idling',
+              severity: 'medium',
+              title: `Prolonged stay in ${geofence.name}`,
+              message: `Vehicle stayed inside geofence "${geofence.name}" for ${Math.round(dwellSeconds / 60)} minutes.`,
+            },
+          );
+        }
+      } else {
+        entryTimestamps.delete(entryKey);
       }
     }
 
@@ -245,36 +460,58 @@ export class GeofencesService {
     latitude: number,
     longitude: number,
     recordedAt: Date,
+    options: { alertType?: string; severity?: string; title?: string; message?: string } = {},
   ): Promise<void> {
     const vehicleLabel = registrationNumber ?? 'Vehicle';
     const action = eventType === 'entry' ? 'entered' : 'left';
     const dedupeKey = `geofence:${geofence.id}:${vehicleId}:${eventType}:${Math.floor(
       recordedAt.getTime() / 3_600_000,
     )}`;
+    const alertType = options.alertType ?? `geofence_${eventType}`;
+    const severity = options.severity ?? 'low';
+    const title = options.title ?? `${vehicleLabel} ${action} ${geofence.name}`;
+    const message = options.message ?? `${vehicleLabel} ${action} geofence "${geofence.name}".`;
 
-    await this.database.query(
+    const inserted = await this.database.query<{ id: string }>(
       `INSERT INTO geoventra.alerts
          (organisation_id, vehicle_id, type, severity, status, title, message,
           latitude, longitude, occurred_at, dedupe_key)
-       SELECT $1, $2, $3, 'low', 'open', $4, $5, $6, $7, $8, $9
+       SELECT $1, $2, $3, $4, 'open', $5, $6, $7, $8, $9, $10
         WHERE NOT EXISTS (
           SELECT 1 FROM geoventra.alerts
-           WHERE dedupe_key = $9 AND status IN ('open', 'acknowledged')
+           WHERE dedupe_key = $10 AND status IN ('open', 'acknowledged')
         )
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
       [
         organisationId,
         vehicleId,
-        `geofence_${eventType}`,
-        `${vehicleLabel} ${action} ${geofence.name}`,
-        `${vehicleLabel} ${action} geofence "${geofence.name}".`,
+        alertType,
+        severity,
+        title,
+        message,
         latitude,
         longitude,
         recordedAt,
         dedupeKey,
       ],
     );
+    const alertId = inserted[0]?.id;
+    if (!alertId) return;
+
+    // Fan the alert out into the in-app notification inbox of the organisation users
+    // that opted into in-app delivery for this alert type.
+    await this.notifications.createForAlert({
+      organisationId,
+      alertType,
+      severity,
+      title,
+      message,
+      vehicleId,
+      vehicleRegistration: registrationNumber,
+    });
   }
+
 }
 
 /** Close an unterminated ring and normalise the coordinates. */

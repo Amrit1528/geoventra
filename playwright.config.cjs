@@ -40,7 +40,7 @@ module.exports = defineConfig({
       command: 'node apps/api/dist/main.js',
       cwd: REPO_ROOT,
       port: 4100,
-      reuseExistingServer: false,
+      reuseExistingServer: true,
       timeout: 60_000,
       env: {
         DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgresql://geoventra@localhost:5432/geoventra_test',
