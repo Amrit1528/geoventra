@@ -3,7 +3,17 @@
  * These types are the contract between the NestJS API and the Next.js client.
  */
 
-export const VEHICLE_CATEGORIES = ['car', 'truck', 'bus', 'van', 'construction'] as const;
+export const VEHICLE_CATEGORIES = [
+  'car',
+  'truck',
+  'trailer_truck',
+  'bus',
+  'van',
+  'pickup',
+  'motorcycle',
+  'tractor',
+  'construction',
+] as const;
 export type VehicleCategory = (typeof VEHICLE_CATEGORIES)[number];
 
 export const VEHICLE_STATUSES = ['moving', 'idle', 'stopped', 'offline'] as const;
@@ -82,6 +92,9 @@ export const PERMISSIONS = [
   'dashboard.read',
   'vehicles.read',
   'vehicles.write',
+  'engine.read',
+  'engine.write',
+  'engine.ingest',
   'drivers.read',
   'drivers.write',
   'devices.read',
@@ -301,6 +314,11 @@ export interface LivePosition {
   groupName: string | null;
   city: string | null;
   odometerKm: number;
+  /** Number of alerts currently open for this vehicle (for marker alert state). */
+  openAlertCount: number;
+  /** Tracker bound to this vehicle, if any. */
+  deviceId: string | null;
+  deviceStatus: string | null;
   recordedAt: string;
   ageSeconds: number;
 }

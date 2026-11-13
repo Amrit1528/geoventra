@@ -257,6 +257,6 @@ export class SimulatedVehicle {
 
     this.lastSampleAtMs = nowMs;
     this.samplesPublished += 1;
-    return adapter.normalize(frame)[0]!;
+    return adapter.normalize([frame])[0]!;
   }
 }
