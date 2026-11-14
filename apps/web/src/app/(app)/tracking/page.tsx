@@ -22,7 +22,7 @@ import {
 import { Badge, Button, Card, CardContent, Select, cn } from '@geoventra/ui';
 import type { LivePosition, TrackPoint } from '@geoventra/contracts';
 import { FleetMap, type FleetRouteStop } from '@/components/map/FleetMap';
-import { VehicleIntelligencePanel } from '@/components/tracking/VehicleIntelligencePanel';
+import { VehicleDrawer } from '@/components/map/VehicleDrawer';
 import { fetchSnapshot, fetchTrail, fetchTripPlayback, fetchTrips } from '@/lib/track-api';
 import {
   connectTrackingSocket,
@@ -65,11 +65,12 @@ export default function TrackingPage(): ReactElement {
   const [fitRouteSignal, setFitRouteSignal] = useState(0);
   const [socketStatus, setSocketStatus] = useState<TrackingSocketStatus>('idle');
   const [showLabels, setShowLabels] = useState(true);
-  const [showClusters, setShowClusters] = useState(true);
+  const [showClusters, setShowClusters] = useState(false);
   const [showGeofences, setShowGeofences] = useState(true);
   const [showRoutes, setShowRoutes] = useState(true);
   const [showStops, setShowStops] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  const [legendVisible, setLegendVisible] = useState(true);
   const [mobileListOpen, setMobileListOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const hasFittedRef = useRef(false);
@@ -211,7 +212,7 @@ export default function TrackingPage(): ReactElement {
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-[var(--text-primary)]">Vehicle Explorer</div>
-            <div className="text-[11px] text-[var(--text-muted)]">Search, filter and select vehicles</div>
+            <div className="text-[11px] text-[var(--text-muted)]">Search, filter and select vehicles · {filtered.length} of {positions.length} shown</div>
           </div>
           <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] lg:hidden" onClick={() => setMobileListOpen(false)} aria-label="Close vehicle list"><X size={16} /></button>
         </div>
@@ -270,7 +271,7 @@ export default function TrackingPage(): ReactElement {
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 sm:px-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-base font-bold tracking-tight text-[var(--text-primary)] sm:text-lg">Live Fleet Command Centre</h1>
+            <h1 className="text-base font-bold tracking-tight text-[var(--text-primary)] sm:text-lg">Live Tracking — Fleet Command Centre</h1>
             <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest', socketStatus === 'live' || socketStatus === 'reconnected' ? 'border-emerald-200 text-emerald-700 [html[data-theme="dark"]_&]:border-emerald-800/60 [html[data-theme="dark"]_&]:text-emerald-400' : stale ? 'border-red-200 text-red-700 [html[data-theme="dark"]_&]:border-red-800/60 [html[data-theme="dark"]_&]:text-red-400' : 'border-amber-200 text-amber-700 [html[data-theme="dark"]_&]:border-amber-800/60 [html[data-theme="dark"]_&]:text-amber-400')}>
               <span className={cn('h-1.5 w-1.5 rounded-full', socketStatus === 'live' || socketStatus === 'reconnected' ? 'bg-emerald-500' : stale ? 'bg-red-500' : 'bg-amber-500 animate-pulse')} />
               {socketStatus === 'live' ? 'Live' : socketStatus}
@@ -287,19 +288,13 @@ export default function TrackingPage(): ReactElement {
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {/* Left explorer (desktop) */}
-        <div className="hidden w-[320px] shrink-0 lg:flex xl:w-[340px]">{Explorer}</div>
+      <div className="flex min-h-0 flex-1">
+        {/* Left: Explorer — desktop: fixed-width panel; mobile: full-width bottom sheet */}
+        <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+          {Explorer}
+        </div>
 
-        {/* Mobile list drawer */}
-        {mobileListOpen ? (
-          <div className="absolute inset-0 z-20 lg:hidden">
-            <button type="button" className="absolute inset-0 bg-slate-950/40" aria-label="Close list" onClick={() => setMobileListOpen(false)} />
-            <div className="absolute inset-y-0 left-0 w-[min(92vw,360px)] shadow-2xl">{Explorer}</div>
-          </div>
-        ) : null}
-
-        {/* Map */}
+        {/* Map — flexible center panel */}
         <div className="relative min-h-0 min-w-0 flex-1">
           {snapshotQuery.isLoading && positions.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">Loading live fleet positions…</div>
@@ -323,9 +318,9 @@ export default function TrackingPage(): ReactElement {
             />
           )}
 
-          {/* Floating toolbar */}
-          <div className="map-toolbar">
-            <button type="button" className="map-toolbar__btn" title="Fit all vehicles" aria-label="Fit all vehicles" onClick={() => setFitSignal((v) => v + 1)}><LocateFixed size={16} /></button>
+          {/* Floating toolbar — positioned within map, outside the map container */}
+          <div className="map-toolbar absolute right-2 top-2 z-[1000] flex flex-wrap gap-1.5">
+            <button type="button" className="map-toolbar__btn" title="Fit to fleet" aria-label="Fit to fleet" onClick={() => setFitSignal((v) => v + 1)}><LocateFixed size={16} /></button>
             <button type="button" className="map-toolbar__btn" title="Fit selected vehicle" aria-label="Fit selected vehicle" onClick={() => setFitSelectedSignal((v) => v + 1)} disabled={!selectedId}><Crosshair size={16} /></button>
             <button type="button" className="map-toolbar__btn" title="Fit route" aria-label="Fit route" onClick={() => setFitRouteSignal((v) => v + 1)} disabled={!selectedId}><Route size={16} /></button>
             <button type="button" className="map-toolbar__btn" title="Toggle labels" aria-label="Toggle labels" aria-pressed={showLabels} onClick={() => setShowLabels((v) => !v)}><Tag size={16} /></button>
@@ -335,39 +330,97 @@ export default function TrackingPage(): ReactElement {
             <button type="button" className="map-toolbar__btn" title="Toggle stops" aria-label="Toggle stops" aria-pressed={showStops} onClick={() => setShowStops((v) => !v)}><Radio size={16} /></button>
           </div>
 
-          {/* Legend */}
-          <div className="map-legend">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Map legend</div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-              <LegendDot color="#16a34a" label="Moving" />
-              <LegendDot color="#f59e0b" label="Idle" />
-              <LegendDot color="#64748b" label="Stopped" />
-              <LegendDot color="#475569" label="Offline" />
-              <LegendDot color="#ef4444" label="Critical alert" />
-              <LegendDot color="#14b8a6" label="Selected / route" />
+          {/* Legend in side panel (fixed position, outside map) */}
+          {legendVisible && (
+            <div className="absolute right-2 top-12 z-40 w-64">
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-lg overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Legend</span>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-0.5 text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
+                    onClick={() => setLegendVisible(false)}
+                    aria-label="Close legend"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="p-2">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <LegendDot color="#16a34a" label="Moving" />
+                    <LegendDot color="#f59e0b" label="Idle" />
+                    <LegendDot color="#64748b" label="Stopped" />
+                    <LegendDot color="#475569" label="Offline" />
+                    <LegendDot color="#ef4444" label="Critical alert" />
+                    <LegendDot color="#14b8a6" label="Selected / route" />
+                  </div>
+                  <div className="mt-1 text-[10px] text-[var(--text-muted)]">Origin: green · Destination: red · Halt: amber</div>
+                </div>
+              </div>
             </div>
-            <div className="mt-1 text-[10px] text-[var(--text-muted)]">Origin: green · Destination: red · Halt: amber</div>
-          </div>
+          )}
         </div>
 
         {/* Right intelligence panel (desktop) */}
         {selected ? (
-          <div className="hidden min-h-0 lg:flex">
-            <VehicleIntelligencePanel vehicle={selected} onClose={() => setSelectedId(null)} />
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden lg:w-[320px] xl:w-[360px]">
+            <VehicleDrawer vehicle={selected} onClose={() => setSelectedId(null)} />
           </div>
         ) : (
-          <div className="hidden w-[360px] shrink-0 flex-col items-center justify-center gap-3 border-l border-[var(--border)] bg-[var(--bg-card)] p-6 text-center xl:w-[420px] lg:flex">
+          <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 border-l border-[var(--border)] bg-[var(--bg-card)] p-6 text-center lg:w-[320px] xl:w-[360px]">
             <Navigation size={24} className="text-[var(--text-muted)]" />
             <p className="text-sm font-semibold text-[var(--text-primary)]">Select a vehicle</p>
             <p className="max-w-xs text-xs text-[var(--text-secondary)]">Hover a marker for a live summary, or click a vehicle on the map/list to open full in-map intelligence, telemetry, route and history.</p>
           </div>
         )}
 
-        {/* Mobile bottom panel */}
-        {selected && mobilePanelOpen ? (
-          <div className="absolute inset-x-0 bottom-0 top-10 z-30 flex flex-col rounded-t-2xl border-t border-[var(--border)] bg-[var(--bg-card)] shadow-2xl lg:hidden">
-            <div className="flex justify-center py-2"><button type="button" className="h-1.5 w-12 rounded-full bg-[var(--border-strong)]" aria-label="Collapse panel" onClick={() => setMobilePanelOpen(false)} /></div>
-            <VehicleIntelligencePanel vehicle={selected} onClose={() => { setMobilePanelOpen(false); setSelectedId(null); }} className="w-full border-l-0" />
+        {/* Mobile list drawer — bottom sheet, closes map on open */}
+        {mobileListOpen ? (
+          <div className="absolute inset-0 z-20 lg:hidden">
+            <button type="button" className="absolute inset-0 bg-slate-950/40" aria-label="Close list" onClick={() => setMobileListOpen(false)} />
+            <div className="absolute inset-y-0 left-0 w-[100vw] max-w-xs shadow-2xl">
+              <div className="flex h-full flex-col border-r border-[var(--border)] bg-[var(--bg-card)]">
+                <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] p-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">Vehicle Explorer</div>
+                    <div className="text-[11px] text-[var(--text-muted)]">Search, filter and select vehicles</div>
+                  </div>
+                  <button type="button" className="rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)]" onClick={() => setMobileListOpen(false)} aria-label="Close vehicle list"><X size={16} /></button>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] p-3">
+                  <div className="text-xs font-bold text-[var(--text-muted)]">{filtered.length} of {positions.length} shown</div>
+                  <div className="flex gap-2">
+                    <Button variant="ghost" size="sm" className="flex-1" onClick={() => setMobileListOpen(false)}>Close</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setFitSignal((v) => v + 1)}>Fit fleet</Button>
+                  </div>
+                </div>
+                <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-2">
+                  {filtered.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-[var(--text-muted)]">No vehicles match the current filters.</div>
+                  ) : filtered.map((p) => {
+                    const active = p.vehicleId === selectedId;
+                    return (
+                      <button key={p.vehicleId} type="button" onClick={() => { selectVehicle(p.vehicleId); setMobileListOpen(false); }} className={cn('mb-2 w-full rounded-xl border p-3 text-left transition-colors', active ? 'border-teal-400 bg-teal-50/60 [html[data-theme="dark"]_&]:bg-teal-950/20' : 'border-[var(--border)] bg-[var(--bg-surface)] hover:border-teal-300 hover:bg-[var(--bg-surface-hover)]')}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{p.registrationNumber || p.name}</div>
+                            <div className="truncate text-[11px] text-[var(--text-muted)]">{p.name}{p.driverName ? ` · ${p.driverName}` : ''}</div>
+                          </div>
+                          <Badge variant={p.status === 'moving' ? 'success' : p.status === 'idle' ? 'warning' : p.status === 'stopped' ? 'neutral' : 'critical'} dot>{p.status}</Badge>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-[var(--text-secondary)]">
+                          <span>Speed: <b className="text-[var(--text-primary)]">{Number.isFinite(p.speedKph) ? `${p.speedKph.toFixed(0)} km/h` : '—'}</b></span>
+                          <span>Updated: <b className="text-[var(--text-primary)]">{relTime(p.recordedAt)}</b></span>
+                          <span className="truncate" title={p.city ?? ''}>Location: <b className="text-[var(--text-primary)]">{p.city || '—'}</b></span>
+                          <span>Alerts: <b className={cn((p.openAlertCount ?? 0) > 0 ? 'text-red-600' : 'text-[var(--text-primary)]')}>{p.openAlertCount ?? 0}</b></span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-[var(--text-muted)]">Fuel: Unavailable · {p.groupName || p.category || 'Fleet'}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           </div>
         ) : null}
       </div>

@@ -32,7 +32,7 @@ CREATE INDEX tyre_services_tyre_idx ON geoventra.tyre_services USING btree (orga
 CREATE TRIGGER tyre_services_set_updated_at BEFORE UPDATE ON geoventra.tyre_services FOR EACH ROW EXECUTE FUNCTION geoventra.set_updated_at();
 
 -- ── TPMS wheel readings ─────────────────────────────────────────────────────
-CREATE TABLE geoventra.tpms_wheel_readings (
+CREATE TABLE IF NOT EXISTS geoventra.tpms_wheel_readings (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     organisation_id uuid NOT NULL,
     vehicle_id uuid NOT NULL,
@@ -46,8 +46,8 @@ CREATE TABLE geoventra.tpms_wheel_readings (
     CONSTRAINT tpms_wheel_readings_tyre_id_fkey FOREIGN KEY (tyre_id) REFERENCES geoventra.tyres(id) ON DELETE CASCADE,
     CONSTRAINT tpms_wheel_readings_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES geoventra.organisations(id) ON DELETE CASCADE
 );
-CREATE INDEX tpms_wheel_readings_vehicle_idx ON geoventra.tpms_wheel_readings USING btree (organisation_id, vehicle_id, reading_at DESC);
-CREATE INDEX tpms_wheel_readings_sensor_idx ON geoventra.tpms_wheel_readings USING btree (organisation_id, sensor_id, reading_at DESC);
+CREATE INDEX IF NOT EXISTS tpms_wheel_readings_vehicle_idx ON geoventra.tpms_wheel_readings USING btree (organisation_id, vehicle_id, reading_at DESC);
+CREATE INDEX IF NOT EXISTS tpms_wheel_readings_sensor_idx ON geoventra.tpms_wheel_readings USING btree (organisation_id, sensor_id, reading_at DESC);
 
 -- ── Odometer history ───────────────────────────────────────────────────────
 CREATE TABLE geoventra.odometer_history (

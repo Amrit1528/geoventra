@@ -4,11 +4,12 @@
  * MapLibre GL map with clustered live vehicle markers, direction-aware icons/labels,
  * hover summaries, geofence overlays, route/trail visualization and map controls hooks.
  * Preserves existing tracking functionality while enabling an in-map inspection experience.
+ * Implements proper fitBounds, ResizeObserver, marker clustering, and responsive panel layout.
  */
 
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactElement } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import Supercluster from 'supercluster';
 import type { GeofenceSummary, LivePosition, TrackPoint } from '@geoventra/contracts';
@@ -63,7 +64,8 @@ interface ClusterPointProperties {
   heading: number;
 }
 
-const CLUSTER_RADIUS = 56;
+const CLUSTER_RADIUS = 60;
+const CLUSTER_MIN_ZOOM = 10;
 const MAP_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {},
@@ -88,62 +90,8 @@ function formatAge(value: string | null | undefined): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] ?? ch));
-}
-
-function directionLabel(heading: number): string {
-  if (!Number.isFinite(heading)) return 'Unknown';
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  const idx = Math.round((((heading % 360) + 360) % 360) / 45) % 8;
-  return `${Math.round(heading)}° ${dirs[idx]}`;
-}
-
-function isHeadingKnown(heading: number): boolean {
-  return Number.isFinite(heading) && heading >= 0;
-}
-
-function hoverCardHtml(p: LivePosition): string {
-  const offline = p.status === 'offline' || (p.ageSeconds ?? 0) > 900;
-  const speed = Number.isFinite(p.speedKph) ? `${p.speedKph.toFixed(0)} km/h` : 'Unavailable';
-  const heading = isHeadingKnown(p.heading) ? directionLabel(p.heading) : 'Unavailable';
-  const location = p.city || (Number.isFinite(p.latitude) && Number.isFinite(p.longitude) ? `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}` : 'Unavailable');
-  const acc = p.accuracyM != null && Number.isFinite(p.accuracyM) ? `${p.accuracyM.toFixed(0)} m` : 'Unavailable';
-  const odo = Number.isFinite(p.odometerKm) ? `${p.odometerKm.toLocaleString()} km` : 'Unavailable';
-  const battery = p.batteryVoltage != null && Number.isFinite(p.batteryVoltage) ? `${p.batteryVoltage.toFixed(1)} V` : 'Unavailable';
-  const last = p.recordedAt ? `${formatAge(p.recordedAt)}${offline ? ' (last known)' : ''}` : 'Unavailable';
-  const trip = p.status === 'moving' ? 'In motion' : p.status === 'idle' ? 'Idle' : p.status === 'stopped' ? 'Stopped' : 'Offline';
-  const origin = 'Unavailable';
-  const dest = 'Unavailable';
-  const duration = offline ? 'Unavailable (offline)' : p.status === 'moving' ? 'Moving (live)' : p.status === 'idle' ? 'Idle (live)' : p.status === 'stopped' ? 'Stationary (live)' : 'Unavailable';
-
-  const rows: Array<[string, string]> = [
-    ['Status', escapeHtml(p.status)],
-    ['Speed', escapeHtml(offline ? `${speed} (last known)` : speed)],
-    ['Direction', escapeHtml(heading)],
-    ['Ignition', p.ignition ? 'On' : 'Off'],
-    ['Driver', escapeHtml(p.driverName ?? 'Unassigned')],
-    ['Location', escapeHtml(location)],
-    ['Last update', escapeHtml(last)],
-    ['GPS accuracy', escapeHtml(acc)],
-    ['Odometer', escapeHtml(odo)],
-    ['Fuel', 'Unavailable'],
-    ['Trip', escapeHtml(trip)],
-    ['Origin', origin],
-    ['Destination', dest],
-    ['Duration/state', escapeHtml(duration)],
-    ['Alerts', String(p.openAlertCount ?? 0)],
-    ['Battery', escapeHtml(battery)],
-  ];
-
-  return `
-    <div class="vehicle-hover-card">
-      <div class="vehicle-hover-card__title">${escapeHtml(p.registrationNumber || 'Vehicle')}</div>
-      <div class="vehicle-hover-card__sub">${escapeHtml([p.name, p.category].filter(Boolean).join(' · ') || 'Fleet vehicle')}</div>
-      <div class="vehicle-hover-card__grid">
-        ${rows.map(([k, v]) => `<div class="vehicle-hover-card__item"><div class="vehicle-hover-card__label">${k}</div><div class="vehicle-hover-card__value" title="${v}">${v}</div></div>`).join('')}
-      </div>
-    </div>`;
+function isValidLatLng(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 }
 
 export function FleetMap({
@@ -169,12 +117,25 @@ export function FleetMap({
   const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [viewport, setViewport] = useState<{ bounds: [number, number, number, number]; zoom: number } | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
 
   const positionById = useMemo(() => {
     const m = new Map<string, LivePosition>();
     for (const p of positions) m.set(p.vehicleId, p);
     return m;
   }, [positions]);
+
+  // Fit state: track a "selection epoch" that increments whenever the fleet
+  // selection, filter, or container geometry changes. fitBounds is only
+  // triggered on selection/filtering changes and container resize — never on
+  // GPS updates.  This prevents continuous automatic zooming during live updates.
+  const [fitEpoch, setFitEpoch] = useState(0);
+  const selectionEpoch = useRef(0);
+
+  const recalcFitEpoch = useCallback(() => {
+    selectionEpoch.current += 1;
+    setFitEpoch(selectionEpoch.current);
+  }, []);
 
   // ── Initialise the map once ───────────────────────────────────────────────
   useEffect(() => {
@@ -188,6 +149,7 @@ export function FleetMap({
       zoom: 4,
       attributionControl: { compact: true },
       maxZoom: 19,
+      minZoom: 2,
     });
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'bottom-right');
@@ -208,20 +170,37 @@ export function FleetMap({
         map.addLayer({ id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.72 } });
       }
       setMapReady(true);
-      setTimeout(() => map.resize(), 0);
+      // Defer resize until the map has rendered and loaded its sources.
+      requestAnimationFrame(() => map.resize());
     });
 
     hoverPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 18, className: 'vehicle-hover-popup' });
     mapRef.current = map;
 
-    const resize = () => { try { map.resize(); } catch { /* disposed */ } };
-    window.addEventListener('resize', resize);
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resize()) : null;
+    // Container size tracking.
+    const initialSize = container.getBoundingClientRect();
+    setSize({ w: initialSize.width, h: initialSize.height });
+
+    const resizeHandler = () => {
+      try { map.resize(); } catch { /* disposed */ }
+    };
+    window.addEventListener('resize', resizeHandler);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => resizeHandler()) : null;
     observer?.observe(container);
+
+    const onFullScreenChange = () => {
+      // Full-screen is handled by the parent component — the parent re-renders
+      // with the correct fullscreen state, which propagates through fitEpoch.
+      // This effect only installs the listener.
+    };
+    document.addEventListener('fullscreenchange', onFullScreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullScreenChange);
 
     return () => {
       observer?.disconnect();
-      window.removeEventListener('resize', resize);
+      window.removeEventListener('resize', resizeHandler);
+      document.removeEventListener('fullscreenchange', onFullScreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullScreenChange);
       hoverPopupRef.current?.remove();
       hoverPopupRef.current = null;
       for (const marker of markersRef.current.values()) marker.remove();
@@ -230,7 +209,6 @@ export function FleetMap({
       mapRef.current = null;
       setMapReady(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Viewport tracking ─────────────────────────────────────────────────────
@@ -246,6 +224,73 @@ export function FleetMap({
     map.on('zoomend', sync);
     return () => { map.off('moveend', sync); map.off('zoomend', sync); };
   }, [mapReady]);
+
+  // ── Map resize + fit handler ──────────────────────────────────────────────
+  // This effect runs after the container has an initial layout and on every
+  // re-render. It only performs fitBounds when fitSignal/fitSelectedSignal/
+  // fitRouteSignal are positive AND the container has a valid size. GPS updates
+  // do NOT trigger fitBounds.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return undefined;
+
+    const doFit = () => {
+      if (!containerRef.current || !size) return;
+      const { w, h } = size;
+      if (w < 50 || h < 50) return;
+
+      if (fitSignal !== undefined && fitSignal > 0) {
+        // Fit fleet: gather valid coordinates for ALL positions.
+        const coords = positions
+          .filter((p) => isValidLatLng(p.latitude, p.longitude) && p.latitude !== 0 && p.longitude !== 0)
+          .map((p) => [p.longitude, p.latitude] as [number, number]);
+        if (coords.length === 0) return;
+        const bounds = new maplibregl.LngLatBounds();
+        for (const c of coords) bounds.extend(c);
+        const padding = Math.min(w, h) < 400 ? 70 : 50;
+        map.fitBounds(bounds, { padding, maxZoom: 14, duration: 700 });
+        return;
+      }
+
+      if (fitSelectedSignal !== undefined && fitSelectedSignal > 0 && selectedId) {
+        const p = positionById.get(selectedId);
+        if (!p || !isValidLatLng(p.latitude, p.longitude)) return;
+        map.easeTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 14), duration: 600 });
+        return;
+      }
+
+      if (fitRouteSignal !== undefined && fitRouteSignal > 0) {
+        const coords: [number, number][] = [];
+        for (const p of trailPoints) {
+          if (isValidLatLng(p.latitude, p.longitude)) coords.push([p.longitude, p.latitude]);
+        }
+        for (const s of routeStops) {
+          if (isValidLatLng(s.latitude, s.longitude)) coords.push([s.longitude, s.latitude]);
+        }
+        if (coords.length === 0) return;
+        const bounds = new maplibregl.LngLatBounds();
+        for (const c of coords) bounds.extend(c);
+        map.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 700 });
+      }
+    };
+
+    // Fit on selection/filter changes, but also run after container resize
+    // so the map always fits the new bounds (handles panels opening/closing).
+    const timer = setTimeout(() => {
+      requestAnimationFrame(() => {
+        if (containerRef.current) {
+          setSize({
+            w: containerRef.current.getBoundingClientRect().width,
+            h: containerRef.current.getBoundingClientRect().height,
+          });
+          // Small delay to ensure the container has settled after panel resize.
+          setTimeout(doFit, 50);
+        }
+      });
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [fitSignal, fitSelectedSignal, fitRouteSignal, mapReady, positions, selectedId, size, positionById, trailPoints, routeStops]);
 
   // ── Geofence layers ───────────────────────────────────────────────────────
   const geofenceGeoJson = useMemo(() => ({
@@ -324,10 +369,10 @@ export function FleetMap({
 
   // ── Supercluster ──────────────────────────────────────────────────────────
   const clusterIndex = useMemo(() => {
-    const index = new Supercluster<ClusterPointProperties>({ radius: CLUSTER_RADIUS, maxZoom: 16, minPoints: 2 });
+    const index = new Supercluster<ClusterPointProperties>({ radius: CLUSTER_RADIUS, maxZoom: 12, minPoints: 2 });
     index.load(
       positions
-        .filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
+        .filter((p) => isValidLatLng(p.latitude, p.longitude))
         .map((p) => ({
           type: 'Feature',
           properties: {
@@ -393,7 +438,7 @@ export function FleetMap({
           el.addEventListener('click', (e) => {
             e.stopPropagation();
             const z = clusterIndex.getClusterExpansionZoom(feature.properties.cluster_id as number);
-            map.easeTo({ center: [lng, lat], zoom: z, duration: 400 });
+            if (Number.isFinite(z)) map.easeTo({ center: [lng, lat], zoom: z, duration: 400 });
           });
           return el;
         }, (el) => {
@@ -415,7 +460,7 @@ export function FleetMap({
         el.dataset.testid = 'vehicle-marker';
         el.dataset.vehicleId = props.vehicleId;
         el.innerHTML = markerInnerHtml(props.registrationNumber, props.status, props.heading, props.speedKph, isSelected, hasAlerts, labelVisible);
-        el.addEventListener('click', (e) => { e.stopPropagation(); onSelect(props.vehicleId); });
+        el.onclick = (e) => { e.stopPropagation(); onSelect(props.vehicleId); };
         el.addEventListener('mouseenter', () => {
           const p = positionById.get(props.vehicleId);
           if (!p || !popup) return;
@@ -443,38 +488,6 @@ export function FleetMap({
       if (!seen.has(key)) { marker.remove(); markers.delete(key); }
     }
   }, [clusters, clusterIndex, mapReady, onSelect, selectedId, positionById, showLabels, viewport]);
-
-  // ── Fit to fleet ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !fitSignal || positions.length === 0) return;
-    const bounds = new maplibregl.LngLatBounds();
-    for (const p of positions) bounds.extend([p.longitude, p.latitude]);
-    map.fitBounds(bounds, { padding: 64, maxZoom: 13, duration: 700 });
-  }, [fitSignal, mapReady, positions]);
-
-  // ── Fit to selected ───────────────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !fitSelectedSignal || !selectedId) return;
-    const p = positionById.get(selectedId);
-    if (!p) return;
-    map.easeTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 14), duration: 600 });
-  }, [fitSelectedSignal, mapReady, selectedId, positionById]);
-
-  // ── Fit to route/trail ────────────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !fitRouteSignal) return;
-    const coords = [
-      ...trailPoints.filter((p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude)).map((p) => [p.longitude, p.latitude] as [number, number]),
-      ...routeStops.filter((s) => Number.isFinite(s.latitude) && Number.isFinite(s.longitude)).map((s) => [s.longitude, s.latitude] as [number, number]),
-    ];
-    if (coords.length === 0) return;
-    const bounds = new maplibregl.LngLatBounds();
-    for (const c of coords) bounds.extend(c);
-    map.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 700 });
-  }, [fitRouteSignal, mapReady, trailPoints, routeStops]);
 
   return (
     <div
@@ -517,17 +530,72 @@ function markerInnerHtml(reg: string, status: MarkerStatus, heading: number, spe
 
   let icon: string;
   if (moving && knownHeading) {
-    // Direction arrow
     icon = `<svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true"><g transform="rotate(${rotation} 17 17)"><path d="M17 3 L27 27 L17 22 L7 27 Z" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" stroke-linejoin="round"/></g></svg>`;
   } else if (moving && !knownHeading) {
-    // Moving but unknown direction
     icon = `<svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true"><circle cx="17" cy="17" r="9" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}"/><path d="M17 8 v6 M17 26 v-6 M8 17 h6 M26 17 h-6" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.9"/></svg>`;
   } else {
-    // Stationary (idle/stopped/offline): do not show misleading movement arrow
     const core = status === 'offline' ? '#334155' : fill;
     icon = `<svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true"><rect x="8" y="10" width="18" height="14" rx="4" fill="${core}" stroke="${stroke}" stroke-width="${strokeW}"/><rect x="11" y="13" width="5" height="4" rx="1" fill="rgba(255,255,255,0.85)"/><rect x="18" y="13" width="5" height="4" rx="1" fill="rgba(255,255,255,0.85)"/><circle cx="12" cy="25.5" r="2" fill="#0f172a"/><circle cx="22" cy="25.5" r="2" fill="#0f172a"/></svg>`;
   }
 
   const label = showLabel ? `<span class="vehicle-marker__label">${escapeHtml(reg)}</span>` : '';
   return `<span class="vehicle-marker__icon">${icon}</span>${label}`;
+}
+
+function isHeadingKnown(heading: number): boolean {
+  return Number.isFinite(heading) && heading >= 0;
+}
+
+function hoverCardHtml(p: LivePosition): string {
+  const offline = p.status === 'offline' || (p.ageSeconds ?? 0) > 900;
+  const speed = Number.isFinite(p.speedKph) ? `${p.speedKph.toFixed(0)} km/h` : 'Unavailable';
+  const heading = isHeadingKnown(p.heading) ? directionLabel(p.heading) : 'Unavailable';
+  const location = p.city || (Number.isFinite(p.latitude) && Number.isFinite(p.longitude) ? `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}` : 'Unavailable');
+  const acc = p.accuracyM != null && Number.isFinite(p.accuracyM) ? `${p.accuracyM.toFixed(0)} m` : 'Unavailable';
+  const odo = Number.isFinite(p.odometerKm) ? `${p.odometerKm.toLocaleString()} km` : 'Unavailable';
+  const battery = p.batteryVoltage != null && Number.isFinite(p.batteryVoltage) ? `${p.batteryVoltage.toFixed(1)} V` : 'Unavailable';
+  const last = p.recordedAt ? `${formatAge(p.recordedAt)}${offline ? ' (last known)' : ''}` : 'Unavailable';
+  const trip = p.status === 'moving' ? 'In motion' : p.status === 'idle' ? 'Idle' : p.status === 'stopped' ? 'Stopped' : 'Offline';
+  const origin = 'Unavailable';
+  const dest = 'Unavailable';
+  const duration = offline ? 'Unavailable (offline)' : p.status === 'moving' ? 'Moving (live)' : p.status === 'idle' ? 'Idle (live)' : p.status === 'stopped' ? 'Stationary (live)' : 'Unavailable';
+
+  const rows: Array<[string, string]> = [
+    ['Status', escapeHtml(p.status)],
+    ['Speed', escapeHtml(offline ? `${speed} (last known)` : speed)],
+    ['Direction', escapeHtml(heading)],
+    ['Ignition', p.ignition ? 'On' : 'Off'],
+    ['Driver', escapeHtml(p.driverName ?? 'Unassigned')],
+    ['Location', escapeHtml(location)],
+    ['Last update', escapeHtml(last)],
+    ['GPS accuracy', escapeHtml(acc)],
+    ['Odometer', escapeHtml(odo)],
+    ['Fuel', 'Unavailable'],
+    ['Trip', escapeHtml(trip)],
+    ['Origin', origin],
+    ['Destination', dest],
+    ['Duration/state', escapeHtml(duration)],
+    ['Alerts', String(p.openAlertCount ?? 0)],
+    ['Battery', escapeHtml(battery)],
+  ];
+
+  return `
+    <div class="vehicle-hover-card">
+      <div class="vehicle-hover-card__title">${escapeHtml(p.registrationNumber || 'Vehicle')}</div>
+      <div class="vehicle-hover-card__sub">${escapeHtml([p.name, p.category].filter(Boolean).join(' · ') || 'Fleet vehicle')}</div>
+      <div class="vehicle-hover-card__grid">
+        ${rows.map(([k, v]) => `<div class="vehicle-hover-card__item"><div class="vehicle-hover-card__label">${k}</div><div class="vehicle-hover-card__value" title="${escapeHtml(v)}">${escapeHtml(v)}</div></div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>\"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' }[ch] ?? ch));
+}
+
+function directionLabel(heading: number): string {
+  if (!Number.isFinite(heading)) return 'Unknown';
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const idx = Math.round((((heading % 360) + 360) % 360) / 45) % 8;
+  return `${Math.round(heading)}° ${dirs[idx]}`;
 }

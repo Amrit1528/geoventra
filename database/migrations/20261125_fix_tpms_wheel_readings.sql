@@ -1,8 +1,33 @@
+SET search_path TO geoventra, public;
+
+CREATE TABLE IF NOT EXISTS geoventra.tyres (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    organisation_id uuid NOT NULL,
+    vehicle_id uuid NOT NULL,
+    serial_number text,
+    manufacturer text,
+    brand text,
+    size text,
+    category text,
+    position text,
+    installed_on date,
+    installed_odometer_km numeric,
+    purchase_price numeric,
+    warranty_expires_at date,
+    expected_service_life_km numeric,
+    current_condition text DEFAULT 'good',
+    last_service_at timestamp with time zone,
+    last_service_odometer_km numeric,
+    last_service_notes text,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT tyres_pkey PRIMARY KEY (id),
+    CONSTRAINT tyres_organisation_id_fkey FOREIGN KEY (organisation_id) REFERENCES geoventra.organisations(id) ON DELETE CASCADE,
+    CONSTRAINT tyres_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES geoventra.vehicles(id) ON DELETE CASCADE
+);
 -- ============================================================================
 -- Fix: tpms_wheel_readings table creation with correct FK references.
 -- ============================================================================
-
-SET search_path TO geoventra, public;
 
 -- Add primary key to tyres table if it doesn't have one
 DO $$

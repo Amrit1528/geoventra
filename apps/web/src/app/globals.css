@@ -3,27 +3,8 @@
 
 @source "../../../../packages/ui/src";
 
-/* ── Geoventra design tokens (dark premium theme) ── */
-:root {
-  --bg-app: #0b1220;
-  --bg-card: #111c33;
-  --bg-surface-hover: #1b2a4a;
-  --text-primary: #e5edf7;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --border: rgba(148, 163, 184, 0.2);
-  --primary-500: #3b82f6;
-  --primary-600: #2563eb;
-  --primary-700: #1d4ed8;
-  --success-500: #22c55e;
-  --warning-500: #f59e0b;
-  --critical-500: #ef4444;
-  --neutral-600: #475569;
-  --font-mono: 'JetBrains Mono', 'Inter', monospace;
-  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
-  --radius: 10px;
-}
+/* Design tokens are defined by @geoventra/ui/styles.css (light-first, data-theme aware).
+   Do not override them here; only app-specific helpers follow. */
 
 /* ── App-level helpers built on the design tokens. ── */
 
@@ -56,6 +37,11 @@ code,
 .vehicle-marker:hover {
   transform: scale(1.08);
   z-index: 20;
+}
+
+.vehicle-marker__icon,
+.vehicle-marker__label {
+  pointer-events: none;
 }
 
 .vehicle-marker__icon {
