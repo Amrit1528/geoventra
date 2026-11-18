@@ -78,14 +78,19 @@ export class TrackingService {
     organisationId: string;
     deviceUuid: string;
     registrationNumber: string;
+    vehicleActive: boolean;
+    deviceActive: boolean;
   } | null> {
     const byDevice = await this.database.queryOne<{
       vehicle_id: string;
       organisation_id: string;
       device_uuid: string;
       registration_number: string;
+      vehicle_active: boolean;
+      device_active: boolean;
     }>(
-      `SELECT da.vehicle_id, da.organisation_id, d.id AS device_uuid, v.registration_number
+      `SELECT da.vehicle_id, da.organisation_id, d.id AS device_uuid, v.registration_number,
+              v.active_flag AS vehicle_active, d.active_flag AS device_active
          FROM geoventra.device_assignments da
          JOIN geoventra.devices d ON d.id = da.device_id
          JOIN geoventra.vehicles v ON v.id = da.vehicle_id
@@ -101,6 +106,8 @@ export class TrackingService {
         organisationId: byDevice.organisation_id,
         deviceUuid: byDevice.device_uuid,
         registrationNumber: byDevice.registration_number,
+        vehicleActive: byDevice.vehicle_active,
+        deviceActive: byDevice.device_active,
       };
     }
 
@@ -109,14 +116,22 @@ export class TrackingService {
         organisation_id: string;
         registration_number: string;
         device_uuid: string | null;
+        vehicle_active: boolean;
+        device_active: boolean | null;
       }>(
-        `SELECT v.organisation_id, v.registration_number,
+        `SELECT v.organisation_id, v.registration_number, v.active_flag AS vehicle_active,
                 (SELECT d.id
                    FROM geoventra.device_assignments da
                    JOIN geoventra.devices d ON d.id = da.device_id
                   WHERE da.vehicle_id = v.id AND da.unassigned_at IS NULL
                   ORDER BY da.assigned_at DESC
-                  LIMIT 1) AS device_uuid
+                  LIMIT 1) AS device_uuid,
+                (SELECT d.active_flag
+                   FROM geoventra.device_assignments da
+                   JOIN geoventra.devices d ON d.id = da.device_id
+                  WHERE da.vehicle_id = v.id AND da.unassigned_at IS NULL
+                  ORDER BY da.assigned_at DESC
+                  LIMIT 1) AS device_active
            FROM geoventra.vehicles v
           WHERE v.id = $1`,
         [vehicleIdHint],
@@ -127,6 +142,8 @@ export class TrackingService {
           organisationId: byVehicle.organisation_id,
           deviceUuid: byVehicle.device_uuid,
           registrationNumber: byVehicle.registration_number,
+          vehicleActive: byVehicle.vehicle_active,
+          deviceActive: byVehicle.device_active ?? true,
         };
       }
     }
@@ -145,6 +162,11 @@ export class TrackingService {
       try {
         const binding = await this.resolveVehicle(event.deviceId, event.vehicleId);
         if (!binding) {
+          rejected += 1;
+          continue;
+        }
+        if (!binding.vehicleActive || !binding.deviceActive) {
+          // Quarantine: do not update live vehicle state for inactive entities.
           rejected += 1;
           continue;
         }
@@ -328,6 +350,7 @@ export class TrackingService {
          LEFT JOIN geoventra.drivers d ON d.id = v.assigned_driver_id
          LEFT JOIN geoventra.vehicle_groups g ON g.id = v.group_id
         WHERE v.organisation_id = $1
+          AND v.active_flag = TRUE
         ORDER BY v.registration_number`,
       [organisationId],
     );
@@ -388,7 +411,8 @@ export class TrackingService {
          LEFT JOIN geoventra.drivers d ON d.id = v.assigned_driver_id
          LEFT JOIN geoventra.vehicle_groups g ON g.id = v.group_id
         WHERE v.organisation_id = $1
-          AND v.id = ANY($2::uuid[])`,
+          AND v.id = ANY($2::uuid[])
+          AND v.active_flag = TRUE`,
       [organisationId, vehicleIds],
     );
 

@@ -3,9 +3,9 @@
 import { type ReactElement, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Car, Gauge, MapPin, Plus, Search, Trash2 } from 'lucide-react';
+import { Car, Gauge, MapPin, Plus, Search, Trash2, Power, PowerOff } from 'lucide-react';
 import { Badge, Button, Card, CardContent, EmptyState, LoadingPanel, PageLayout, Select } from '@geoventra/ui';
-import { createVehicle, deleteVehicle, fetchVehicles } from '@/lib/vehicles-api';
+import { createVehicle, deleteVehicle, fetchVehicles, setVehicleStatus } from '@/lib/vehicles-api';
 import type { VehicleStatus } from '@geoventra/contracts';
 
 const STATUS_OPTIONS = [
@@ -20,13 +20,14 @@ export default function VehiclesPage(): ReactElement {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | VehicleStatus>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ registrationNumber: '', name: '', category: 'car', manufacturer: '', model: '', fuelType: 'diesel', year: new Date().getFullYear(), vin: '' });
 
   const { data, isLoading } = useQuery({
-    queryKey: ['vehicles', search, statusFilter, page],
-    queryFn: () => fetchVehicles({ q: search || undefined, status: statusFilter === 'all' ? undefined : statusFilter, page, pageSize: 25 }),
+    queryKey: ['vehicles', search, statusFilter, activeFilter, page],
+    queryFn: () => fetchVehicles({ q: search || undefined, status: statusFilter === 'all' ? undefined : statusFilter, active: activeFilter, page, pageSize: 25 }),
   });
   const vehicles = data?.data ?? [];
   const total = data?.meta.total ?? 0;
@@ -38,6 +39,7 @@ export default function VehiclesPage(): ReactElement {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['vehicles'] }); setShowForm(false); setForm({ registrationNumber: '', name: '', category: 'car', manufacturer: '', model: '', fuelType: 'diesel', year: new Date().getFullYear(), vin: '' }); },
   });
   const delMut = useMutation({ mutationFn: (id: string) => deleteVehicle(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['vehicles'] }) });
+  const statusMut = useMutation({ mutationFn: ({ id, activeFlag }: { id: string; activeFlag: boolean }) => setVehicleStatus(id, activeFlag), onSuccess: () => { qc.invalidateQueries({ queryKey: ['vehicles'] }); } });
 
   return (
     <PageLayout
@@ -54,6 +56,11 @@ export default function VehiclesPage(): ReactElement {
           </div>
           <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as any); setPage(1); }} aria-label="Status filter">
             {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+          <Select value={activeFilter} onChange={(e) => { setActiveFilter(e.target.value as any); setPage(1); }} aria-label="Active filter">
+            <option value="all">All active states</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
           </Select>
         </div>
         <p className="text-sm text-[var(--text-muted)]">{total} vehicle{total !== 1 ? 's' : ''}</p>
@@ -99,6 +106,7 @@ export default function VehiclesPage(): ReactElement {
                       <p className="truncate text-xs text-[var(--text-muted)]">{v.name} · {v.manufacturer} {v.model}</p>
                     </div>
                     <Badge variant={v.status === 'moving' ? 'success' : v.status === 'idle' ? 'warning' : v.status === 'offline' ? 'critical' : 'neutral'} dot>{v.status}</Badge>
+                    <Badge variant={v.activeFlag ? 'success' : 'neutral'}>{v.activeFlag ? 'Active' : 'Inactive'}</Badge>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)]">
                     <span className="inline-flex items-center gap-1"><Car size={12} /> {v.category} · {v.fuelType}</span>
@@ -110,6 +118,11 @@ export default function VehiclesPage(): ReactElement {
                     <Link href="/tracking"><Button variant="secondary" size="sm">Track</Button></Link>
                     <Link href={`/tpms/${v.id}`}><Button variant="secondary" size="sm">TPMS</Button></Link>
                     <Link href={`/engine/${v.id}`}><Button variant="secondary" size="sm">Engine</Button></Link>
+                    {v.activeFlag ? (
+                      <Button variant="secondary" size="sm" disabled={statusMut.isPending} onClick={() => { if (confirm('Disable this vehicle?')) statusMut.mutate({ id: v.id, activeFlag: false }); }}><PowerOff size={12} /> Disable</Button>
+                    ) : (
+                      <Button variant="secondary" size="sm" disabled={statusMut.isPending} onClick={() => statusMut.mutate({ id: v.id, activeFlag: true })}><Power size={12} /> Enable</Button>
+                    )}
                     <Button variant="danger" size="sm" disabled={delMut.isPending} onClick={() => { if (confirm('Delete this vehicle?')) delMut.mutate(v.id); }}><Trash2 size={12} /> Delete</Button>
                   </div>
                 </CardContent>

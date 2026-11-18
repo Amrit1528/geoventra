@@ -112,6 +112,16 @@ export class DevicesController {
     return data;
   }
 
+  @Patch(':id/status')
+  @UseGuards(JwtAuthGuard)
+  @RequirePermissions('devices.write')
+  async setStatus(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    const parsed = z.object({ active_flag: z.boolean().optional(), activeFlag: z.boolean().optional(), reason: z.string().optional() }).parse(body ?? {});
+    const activeFlag = parsed.activeFlag ?? parsed.active_flag ?? false;
+    const data = await this.devicesService.setStatus(user.organisationId, id, Boolean(activeFlag), user.id, parsed.reason ?? null);
+    return data;
+  }
+
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @RequirePermissions('devices.write')

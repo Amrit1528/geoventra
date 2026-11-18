@@ -10,6 +10,7 @@ export interface DeviceRecord {
   firmwareVersion: string;
   provider: string;
   status: 'online' | 'offline' | 'degraded' | 'unassigned';
+  activeFlag?: boolean;
   lastCommunicationAt: string | null;
   serialNumber?: string | null;
   macAddress?: string | null;
@@ -23,12 +24,18 @@ export interface DevicesQuery {
   search?: string;
   status?: string;
   deviceType?: string;
+  active?: 'all' | 'active' | 'inactive';
   page?: number;
   pageSize?: number;
 }
 
 export function fetchDevices(query: DevicesQuery = {}) {
-  return apiRequest<Paginated<DeviceRecord>>('/devices', { query: query as any });
+  const activeFlag = query.active === 'active' ? true : query.active === 'inactive' ? false : undefined;
+  return apiRequest<Paginated<DeviceRecord>>('/devices', { query: { ...query, activeFlag } as any });
+}
+
+export function setDeviceStatus(id: string, activeFlag: boolean, reason?: string) {
+  return apiRequest<DeviceRecord>(`/devices/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { active_flag: activeFlag, reason } });
 }
 
 export function fetchDevice(id: string) {

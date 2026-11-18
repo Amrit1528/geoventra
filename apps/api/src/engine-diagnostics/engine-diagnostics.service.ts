@@ -13,7 +13,7 @@
  * Every read is tenant-scoped by `organisationId`; every write emits a realtime event.
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import {
   ENGINE_PRIMARY_METRICS,
   type DtcSeverity,
@@ -176,6 +176,45 @@ export class EngineDiagnosticsService {
     if (!vehicle) {
       throw new NotFoundException(`Vehicle ${vehicleId} was not found`);
     }
+    if (!(await this.repository.hasActiveAssignedDevice(organisationId, vehicleId))) {
+      const now = new Date().toISOString();
+      const summary: EngineVehicleSummary = {
+        vehicleId,
+        registrationNumber: vehicle.registration_number,
+        name: vehicle.name,
+        category: vehicle.category,
+        status: vehicle.status,
+        healthStatus: 'unknown',
+        healthScore: 0,
+        milOn: false,
+        activeDtcCount: 0,
+        totalDtcCount: 0,
+        openAlertCount: 0,
+        criticalAlertCount: 0,
+        lastReadingAt: null,
+        deviceId: vehicle.device_id,
+        deviceStatus: vehicle.device_status as EngineVehicleSummary['deviceStatus'],
+      };
+      return {
+        vehicle: summary,
+        health: {
+          vehicleId,
+          healthStatus: 'unknown',
+          healthScore: 0,
+          scoreBreakdown: [],
+          charts: [],
+          activeDtcCount: 0,
+          openAlertCount: 0,
+          milOn: false,
+          generatedAt: now,
+        },
+        latestTelemetry: [],
+        dtcCounts: { pending: 0, active: 0, acknowledged: 0, cleared: 0, historical: 0 },
+        recentEvents: [],
+        openAlerts: [],
+        generatedAt: now,
+      };
+    }
 
     const allDtcs = await this.repository.listDtcs(organisationId, vehicleId, {});
     const liveDtcs = allDtcs.filter((dtc) => isLiveDtc(dtc));
@@ -241,6 +280,7 @@ export class EngineDiagnosticsService {
     organisationId: string,
     vehicleId: string,
   ): Promise<EngineTelemetryReading[]> {
+    if (!(await this.repository.hasActiveAssignedDevice(organisationId, vehicleId))) return [];
     return this.repository.latestTelemetry(organisationId, vehicleId);
   }
 
@@ -249,6 +289,7 @@ export class EngineDiagnosticsService {
     vehicleId: string,
     query: HistoryQuery,
   ): Promise<EngineTelemetryReading[]> {
+    if (!(await this.repository.hasActiveAssignedDevice(organisationId, vehicleId))) return [];
     return this.repository.listTelemetry(organisationId, vehicleId, query);
   }
 
@@ -260,6 +301,7 @@ export class EngineDiagnosticsService {
     vehicleId: string,
     query: HistoryQuery,
   ): Promise<EngineHealthChart[]> {
+    if (!(await this.repository.hasActiveAssignedDevice(organisationId, vehicleId))) return [];
     const series = await this.repository.chartSeries(organisationId, vehicleId, query);
     const byMetric = new Map<string, EngineHealthChart>();
 
@@ -305,6 +347,19 @@ export class EngineDiagnosticsService {
   // ── Health ───────────────────────────────────────────────────────────────
 
   async health(organisationId: string, vehicleId: string): Promise<EngineHealthSnapshot> {
+    if (!(await this.repository.hasActiveAssignedDevice(organisationId, vehicleId))) {
+      return {
+        vehicleId,
+        healthStatus: 'unknown',
+        healthScore: 0,
+        scoreBreakdown: [],
+        charts: [],
+        activeDtcCount: 0,
+        openAlertCount: 0,
+        milOn: false,
+        generatedAt: new Date().toISOString(),
+      };
+    }
     const dtcs = (await this.repository.listDtcs(organisationId, vehicleId, {})).filter((dtc) =>
       isLiveDtc(dtc),
     );
@@ -324,6 +379,7 @@ export class EngineDiagnosticsService {
     vehicleId: string | null,
     filters: { status?: DtcStatus; severity?: DtcSeverity; code?: string },
   ): Promise<EngineDtc[]> {
+    if (vehicleId && !(await this.repository.hasActiveAssignedDevice(organisationId, vehicleId))) return [];
     return this.repository.listDtcs(organisationId, vehicleId, filters);
   }
 
@@ -495,6 +551,7 @@ export class EngineDiagnosticsService {
     vehicleId: string,
     filters: { from?: string; to?: string; kind?: string; limit?: number },
   ): Promise<EngineTimelineEntry[]> {
+    if (!(await this.repository.hasActiveAssignedDevice(organisationId, vehicleId))) return [];
     return this.repository.listTimeline(organisationId, vehicleId, filters);
   }
 
@@ -508,6 +565,12 @@ export class EngineDiagnosticsService {
     const vehicle = await this.repository.findVehicle(organisationId, command.vehicleId);
     if (!vehicle) {
       throw new NotFoundException(`Vehicle ${command.vehicleId} was not found`);
+    }
+    if (!(await this.repository.isVehicleActive(organisationId, command.vehicleId))) {
+      return { accepted: 0, readings: [] };
+    }
+    if (!(await this.repository.isDeviceActive(organisationId, command.deviceId ?? null))) {
+      return { accepted: 0, readings: [] };
     }
 
     const now = new Date().toISOString();
@@ -547,6 +610,12 @@ export class EngineDiagnosticsService {
     const vehicle = await this.repository.findVehicle(organisationId, command.vehicleId);
     if (!vehicle) {
       throw new NotFoundException(`Vehicle ${command.vehicleId} was not found`);
+    }
+    if (!(await this.repository.isVehicleActive(organisationId, command.vehicleId))) {
+      throw new BadRequestException('Vehicle is inactive');
+    }
+    if (!(await this.repository.isDeviceActive(organisationId, command.deviceId ?? null))) {
+      throw new BadRequestException('Device is inactive');
     }
 
     const code = command.code.toUpperCase();

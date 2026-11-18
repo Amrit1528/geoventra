@@ -124,6 +124,17 @@ export class TpmsService {
 
   async getVehicleStatus(organisationId: string, vehicleId: string): Promise<TpmsVehicleStatus> {
     const vehicle = await this.ensureVehicle(organisationId, vehicleId);
+    const device = await this.database.queryOne<{ active_flag: boolean }>(
+      `SELECT d.active_flag
+         FROM geoventra.device_assignments da
+         JOIN geoventra.devices d ON d.id = da.device_id
+        WHERE da.vehicle_id = $1 AND da.organisation_id = $2 AND da.unassigned_at IS NULL
+        ORDER BY da.assigned_at DESC LIMIT 1`,
+      [vehicleId, organisationId],
+    );
+    if (device && device.active_flag === false) {
+      throw new NotFoundException('Device is inactive');
+    }
     const [config, sensors, readings] = await Promise.all([
       this.getConfig(organisationId, vehicleId),
       this.repository.listSensors(organisationId, vehicleId),
@@ -196,6 +207,22 @@ export class TpmsService {
     context: { receivedAt?: Date; sourceDeviceId?: string | null; registrationNumber?: string | null } = {},
   ): Promise<{ accepted: number; rejected: number }> {
     await this.ensureVehicle(organisationId, vehicleId);
+    if (context.sourceDeviceId) {
+      const dev = await this.database.queryOne<{ active_flag: boolean }>(
+        `SELECT active_flag FROM geoventra.devices WHERE organisation_id=$1 AND (id::text=$2 OR device_id=$2)`,
+        [organisationId, context.sourceDeviceId],
+      );
+      if (dev && dev.active_flag === false) {
+        return { accepted: 0, rejected: (readings ?? []).length };
+      }
+    }
+    const vehicle = await this.database.queryOne<{ active_flag: boolean }>(
+      `SELECT active_flag FROM geoventra.vehicles WHERE organisation_id=$1 AND id=$2`,
+      [organisationId, vehicleId],
+    );
+    if (vehicle && vehicle.active_flag === false) {
+      return { accepted: 0, rejected: (readings ?? []).length };
+    }
     const config = await this.getConfig(organisationId, vehicleId);
     let accepted = 0;
     let rejected = 0;

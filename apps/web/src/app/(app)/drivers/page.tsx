@@ -1,20 +1,22 @@
 'use client';
 import { type ReactElement, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Trash2, UserRound } from 'lucide-react';
+import { Plus, Search, Trash2, UserRound, Power, PowerOff } from 'lucide-react';
 import { Badge, Button, Card, CardContent, EmptyState, KpiCard, LoadingPanel, PageLayout, Select } from '@geoventra/ui';
-import { createDriver, deleteDriver, fetchDrivers, updateDriver } from '@/lib/drivers-api';
+import { createDriver, deleteDriver, fetchDrivers, setDriverStatus, updateDriver } from '@/lib/drivers-api';
 
 export default function DriversPage(): ReactElement {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', licenseNumber: '', licenseExpiry: '', status: 'active' });
-  const q = useQuery({ queryKey: ['drivers', search, status, page], queryFn: () => fetchDrivers({ search: search || undefined, status: status === 'all' ? undefined : status, page, pageSize: 25 }) });
+  const q = useQuery({ queryKey: ['drivers', search, status, activeFilter, page], queryFn: () => fetchDrivers({ search: search || undefined, status: status === 'all' ? undefined : status, active: activeFilter, page, pageSize: 25 }) });
   const createMut = useMutation({ mutationFn: () => createDriver(form), onSuccess: () => { qc.invalidateQueries({ queryKey: ['drivers'] }); setFormOpen(false); setForm({ name: '', phone: '', email: '', licenseNumber: '', licenseExpiry: '', status: 'active' }); } });
   const delMut = useMutation({ mutationFn: (id: string) => deleteDriver(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['drivers'] }) });
+  const statusMut = useMutation({ mutationFn: ({ id, activeFlag }: { id: string; activeFlag: boolean }) => setDriverStatus(id, activeFlag), onSuccess: () => qc.invalidateQueries({ queryKey: ['drivers'] }) });
   const data = q.data?.data ?? [];
   const meta = q.data?.meta as any;
   return (
@@ -29,6 +31,7 @@ export default function DriversPage(): ReactElement {
         <div className="flex flex-1 flex-col gap-2 sm:flex-row">
           <div className="relative max-w-md flex-1"><Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" /><input value={search} onChange={(e)=>{setSearch(e.target.value); setPage(1);}} placeholder="Search name, phone, email, license…" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-app)] pl-9 pr-3 text-sm outline-none" /></div>
           <Select aria-label="Status" value={status} onChange={(e)=>{setStatus(e.target.value); setPage(1);}} options={[{value:'all',label:'All statuses'},{value:'active',label:'Active'},{value:'on_leave',label:'On leave'},{value:'inactive',label:'Inactive'}]} />
+          <Select aria-label="Active filter" value={activeFilter} onChange={(e)=>{setActiveFilter(e.target.value as any); setPage(1);}} options={[{value:'all',label:'All active states'},{value:'active',label:'Active'},{value:'inactive',label:'Inactive'}]} />
         </div>
         <Button variant="primary" size="sm" onClick={()=>setFormOpen(v=>!v)}><Plus size={14}/> Add driver</Button>
       </CardContent></Card>
@@ -43,8 +46,8 @@ export default function DriversPage(): ReactElement {
       </CardContent></Card> : null}
       {q.isLoading ? <LoadingPanel label="Loading drivers…" /> : null}
       {!q.isLoading && data.length===0 ? <EmptyState title="No drivers" description="Add drivers to assign vehicles and track performance." icon={<UserRound size={28}/>} action={<Button variant="primary" size="sm" onClick={()=>setFormOpen(true)}><Plus size={14}/> Add driver</Button>} /> : null}
-      {data.length>0 ? <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="bg-[var(--bg-app)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="px-4 py-3">Driver</th><th className="px-4 py-3">Contact</th><th className="px-4 py-3">License</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Safety</th><th className="px-4 py-3">Actions</th></tr></thead><tbody>
-        {data.map((d:any)=>(<tr key={d.id} className="border-t border-[var(--border)]"><td className="px-4 py-3"><div className="font-medium">{d.name}</div><div className="text-xs text-[var(--text-muted)]">{d.assignedVehicleRegistration || 'Unassigned'}</div></td><td className="px-4 py-3 text-[var(--text-secondary)]"><div>{d.phone||'—'}</div><div className="text-xs">{d.email||'—'}</div></td><td className="px-4 py-3 text-[var(--text-secondary)]"><div>{d.licenseNumber||d.license_number||'—'}</div><div className="text-xs">Exp: {d.licenseExpiry||d.license_expiry||'—'}</div></td><td className="px-4 py-3"><Badge variant={d.status==='active'?'success':d.status==='on_leave'?'warning':'neutral'} dot>{d.status}</Badge></td><td className="px-4 py-3">{d.safetyScore ?? d.safety_score ?? '—'}</td><td className="px-4 py-3"><Button variant="danger" size="sm" onClick={()=>{if(confirm('Delete driver?')) delMut.mutate(d.id);}}><Trash2 size={12}/> Delete</Button></td></tr>))}
+      {data.length>0 ? <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="bg-[var(--bg-app)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]"><tr><th className="px-4 py-3">Driver</th><th className="px-4 py-3">Contact</th><th className="px-4 py-3">License</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Active</th><th className="px-4 py-3">Safety</th><th className="px-4 py-3">Actions</th></tr></thead><tbody>
+        {data.map((d:any)=>(<tr key={d.id} className="border-t border-[var(--border)]"><td className="px-4 py-3"><div className="font-medium">{d.name}</div><div className="text-xs text-[var(--text-muted)]">{d.assignedVehicleRegistration || 'Unassigned'}</div></td><td className="px-4 py-3 text-[var(--text-secondary)]"><div>{d.phone||'—'}</div><div className="text-xs">{d.email||'—'}</div></td><td className="px-4 py-3 text-[var(--text-secondary)]"><div>{d.licenseNumber||d.license_number||'—'}</div><div className="text-xs">Exp: {d.licenseExpiry||d.license_expiry||'—'}</div></td><td className="px-4 py-3"><Badge variant={d.status==='active'?'success':d.status==='on_leave'?'warning':'neutral'} dot>{d.status}</Badge></td><td className="px-4 py-3"><Badge variant={(d.activeFlag ?? d.active_flag) ? 'success' : 'neutral'}>{(d.activeFlag ?? d.active_flag) ? 'Active' : 'Inactive'}</Badge></td><td className="px-4 py-3">{d.safetyScore ?? d.safety_score ?? '—'}</td><td className="px-4 py-3"><div className="flex gap-2">{(d.activeFlag ?? d.active_flag) ? <Button variant="secondary" size="sm" disabled={statusMut.isPending} onClick={()=>{if(confirm('Disable this driver?')) statusMut.mutate({id:d.id,activeFlag:false});}}><PowerOff size={12}/> Disable</Button> : <Button variant="secondary" size="sm" disabled={statusMut.isPending} onClick={()=>statusMut.mutate({id:d.id,activeFlag:true})}><Power size={12}/> Enable</Button>}<Button variant="danger" size="sm" onClick={()=>{if(confirm('Delete driver?')) delMut.mutate(d.id);}}><Trash2 size={12}/> Delete</Button></div></td></tr>))}
       </tbody></table></div></CardContent></Card> : null}
     </PageLayout>
   );

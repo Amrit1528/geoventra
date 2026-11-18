@@ -138,6 +138,44 @@ export class EngineDiagnosticsRepository {
     return rows.find((row) => row.vehicle_id === vehicleId) ?? null;
   }
 
+  /** Returns true when the device is unknown or active; false only when a known device is inactive. */
+  async isDeviceActive(organisationId: string, deviceId: string | null | undefined): Promise<boolean> {
+    if (!deviceId) return true;
+    const row = await this.database.queryOne<{ active_flag: boolean }>(
+      `SELECT active_flag FROM geoventra.devices WHERE organisation_id = $1 AND (id::text = $2 OR device_id = $2)`,
+      [organisationId, deviceId],
+    );
+    if (!row) return true;
+    return row.active_flag !== false;
+  }
+
+  /** Returns true when the vehicle is unknown or active; false only when a known vehicle is inactive. */
+  async isVehicleActive(organisationId: string, vehicleId: string): Promise<boolean> {
+    const row = await this.database.queryOne<{ active_flag: boolean }>(
+      `SELECT active_flag FROM geoventra.vehicles WHERE organisation_id = $1 AND id = $2`,
+      [organisationId, vehicleId],
+    );
+    if (!row) return true;
+    return row.active_flag !== false;
+  }
+
+  /** Returns false only when the vehicle has a currently assigned device that is inactive. */
+  async hasActiveAssignedDevice(organisationId: string, vehicleId: string): Promise<boolean> {
+    const row = await this.database.queryOne<{ active_flag: boolean | null }>(
+      `SELECT d.active_flag
+         FROM geoventra.device_assignments da
+         JOIN geoventra.devices d ON d.id = da.device_id
+        WHERE da.vehicle_id = $1
+          AND da.organisation_id = $2
+          AND da.unassigned_at IS NULL
+        ORDER BY da.assigned_at DESC
+        LIMIT 1`,
+      [vehicleId, organisationId],
+    );
+    if (!row || row.active_flag === null) return true;
+    return row.active_flag !== false;
+  }
+
   // ── Telemetry ────────────────────────────────────────────────────────────
 
   async insertTelemetry(

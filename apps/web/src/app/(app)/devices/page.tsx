@@ -2,9 +2,9 @@
 
 import { type ReactElement, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cpu, Plus, RefreshCw, Search, Server, Wifi, WifiOff, Wrench } from 'lucide-react';
+import { Cpu, Plus, RefreshCw, Search, Server, Wifi, WifiOff, Wrench, Power, PowerOff } from 'lucide-react';
 import { Badge, Button, Card, CardContent, EmptyState, KpiCard, LoadingPanel, PageLayout, Select } from '@geoventra/ui';
-import { assignDevice, createDevice, deleteDevice, fetchDevices, unassignDevice, updateDevice, type DeviceRecord } from '@/lib/devices-api';
+import { assignDevice, createDevice, deleteDevice, fetchDevices, setDeviceStatus, unassignDevice, updateDevice, type DeviceRecord } from '@/lib/devices-api';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
@@ -25,14 +25,15 @@ export default function DevicesPage(): ReactElement {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ deviceId: '', deviceType: 'gps_tracker', model: '', provider: '', imei: '', serialNumber: '', firmwareVersion: '', status: 'unassigned' });
   const [assign, setAssign] = useState<Record<string, string>>({});
 
   const query = useQuery({
-    queryKey: ['devices', search, status, page],
-    queryFn: () => fetchDevices({ search: search || undefined, status: status === 'all' ? undefined : status, page, pageSize: 25 }),
+    queryKey: ['devices', search, status, activeFilter, page],
+    queryFn: () => fetchDevices({ search: search || undefined, status: status === 'all' ? undefined : status, active: activeFilter, page, pageSize: 25 }),
   });
 
   const createMut = useMutation({
@@ -40,6 +41,7 @@ export default function DevicesPage(): ReactElement {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['devices'] }); setShowForm(false); setForm({ deviceId: '', deviceType: 'gps_tracker', model: '', provider: '', imei: '', serialNumber: '', firmwareVersion: '', status: 'unassigned' }); },
   });
   const updateMut = useMutation({ mutationFn: ({ id, body }: { id: string; body: any }) => updateDevice(id, body), onSuccess: () => qc.invalidateQueries({ queryKey: ['devices'] }) });
+  const statusMut = useMutation({ mutationFn: ({ id, activeFlag }: { id: string; activeFlag: boolean }) => setDeviceStatus(id, activeFlag), onSuccess: () => { qc.invalidateQueries({ queryKey: ['devices'] }); qc.invalidateQueries({ queryKey: ['engine-overview'] }); qc.invalidateQueries({ queryKey: ['engine-telemetry-latest'] }); qc.invalidateQueries({ queryKey: ['tpms-vehicle'] }); qc.invalidateQueries({ queryKey: ['tracking-snapshot'] }); } });
   const deleteMut = useMutation({ mutationFn: (id: string) => deleteDevice(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['devices'] }) });
   const assignMut = useMutation({ mutationFn: ({ id, vehicleId }: { id: string; vehicleId: string }) => assignDevice(id, { vehicleId }), onSuccess: () => qc.invalidateQueries({ queryKey: ['devices'] }) });
   const unassignMut = useMutation({ mutationFn: (id: string) => unassignDevice(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['devices'] }) });
@@ -77,6 +79,7 @@ export default function DevicesPage(): ReactElement {
               <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search device ID, IMEI, model…" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-app)] pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]" />
             </div>
             <Select aria-label="Status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} options={STATUS_OPTIONS} />
+            <Select aria-label="Active filter" value={activeFilter} onChange={(e) => { setActiveFilter(e.target.value as any); setPage(1); }} options={[{ value: 'all', label: 'All active states' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} />
           </div>
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={() => query.refetch()}><RefreshCw size={14} /> Refresh</Button>
@@ -120,6 +123,7 @@ export default function DevicesPage(): ReactElement {
                     <th className="px-4 py-3">Type</th>
                     <th className="px-4 py-3">Provider / Model</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Active</th>
                     <th className="px-4 py-3">Last communication</th>
                     <th className="px-4 py-3">Actions</th>
                   </tr>
@@ -137,12 +141,18 @@ export default function DevicesPage(): ReactElement {
                         <div className="text-xs text-[var(--text-muted)]">{d.provider} {d.firmwareVersion ? `· FW ${d.firmwareVersion}` : ''}</div>
                       </td>
                       <td className="px-4 py-3"><Badge variant={statusVariant(d.status) as any} dot>{d.status}</Badge></td>
+                      <td className="px-4 py-3"><Badge variant={d.activeFlag ? 'success' : 'neutral'}>{d.activeFlag ? 'Active' : 'Inactive'}</Badge></td>
                       <td className="px-4 py-3 text-[var(--text-secondary)]">{d.lastCommunicationAt ? new Date(d.lastCommunicationAt).toLocaleString() : '—'}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <input value={assign[d.id] ?? ''} onChange={(e) => setAssign((p) => ({ ...p, [d.id]: e.target.value }))} placeholder="Vehicle ID" className="h-8 w-36 rounded-md border border-[var(--border)] bg-[var(--bg-app)] px-2 text-xs" />
                           <Button variant="secondary" size="sm" disabled={!assign[d.id] || assignMut.isPending} onClick={() => assignMut.mutate({ id: d.id, vehicleId: assign[d.id]! })}>Assign</Button>
                           <Button variant="secondary" size="sm" disabled={unassignMut.isPending} onClick={() => unassignMut.mutate(d.id)}>Unassign</Button>
+                          {d.activeFlag ? (
+                            <Button variant="secondary" size="sm" disabled={statusMut.isPending} onClick={() => { if (confirm('Disable this device?')) statusMut.mutate({ id: d.id, activeFlag: false }); }}><PowerOff size={12} /> Disable</Button>
+                          ) : (
+                            <Button variant="secondary" size="sm" disabled={statusMut.isPending} onClick={() => statusMut.mutate({ id: d.id, activeFlag: true })}><Power size={12} /> Enable</Button>
+                          )}
                           <Button variant="secondary" size="sm" disabled={updateMut.isPending} onClick={() => updateMut.mutate({ id: d.id, body: { status: d.status === 'online' ? 'offline' : 'online' } })}><Wrench size={12} /> Toggle</Button>
                           <Button variant="danger" size="sm" disabled={deleteMut.isPending} onClick={() => { if (confirm('Remove this device?')) deleteMut.mutate(d.id); }}>Delete</Button>
                         </div>

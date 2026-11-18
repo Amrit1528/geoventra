@@ -18,14 +18,20 @@ export interface VehiclesQuery {
   status?: VehicleStatus;
   fuelType?: FuelType;
   search?: string;
+  active?: 'all' | 'active' | 'inactive';
   page?: number;
   pageSize?: number;
 }
 
 export async function fetchVehicles(query: VehiclesQuery = {}): Promise<Paginated<VehicleSummary>> {
+  const activeFlag = query.active === 'active' ? true : query.active === 'inactive' ? false : undefined;
   return apiRequest<Paginated<VehicleSummary>>('/vehicles', {
-    query: { page: query.page, pageSize: query.pageSize, q: query.q, category: query.category, status: query.status, search: query.search },
+    query: { page: query.page, pageSize: query.pageSize, q: query.q, category: query.category, status: query.status, search: query.search, activeFlag },
   });
+}
+
+export async function setVehicleStatus(id: string, activeFlag: boolean, reason?: string): Promise<VehicleSummary> {
+  return apiRequest<VehicleSummary>(`/vehicles/${id}/status`, { method: 'PATCH', body: { active_flag: activeFlag, reason } });
 }
 
 export async function fetchVehicle(id: string): Promise<VehicleDetail> {
@@ -74,6 +80,7 @@ export async function updateVehicle(id: string, input: Partial<{
   insuranceExpiry?: string;
   registrationExpiry?: string;
   notes?: string;
+  activeFlag?: boolean;
 }>): Promise<VehicleSummary> {
   return apiRequest<VehicleSummary>(`/vehicles/${id}`, { method: 'PATCH', body: input });
 }

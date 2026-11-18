@@ -102,7 +102,7 @@ export class Pt06Service implements OnApplicationBootstrap, OnModuleDestroy {
         if (Number.isFinite(n) && n > 0) return n;
       }
     }
-    return Number(process.env.PT06_DEFAULT_TCP_PORT ?? 5000);
+    return Number(process.env.PT06_DEFAULT_TCP_PORT ?? 5001);
   }
 
   async start(): Promise<void> {

@@ -66,7 +66,7 @@ export default function TpmsVehiclePage(): ReactElement {
       {statusQuery.isLoading ? <LoadingPanel label="Loading tyre status…" /> : null}
       {statusQuery.error ? <EmptyState title="Unable to load vehicle TPMS" description="Vehicle not found or TPMS data unavailable." /> : null}
 
-      {status ? (
+      {!statusQuery.error && status ? (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <KpiCard label="Total tyres" value={status.summary.total} icon={<Gauge size={16} />} />
