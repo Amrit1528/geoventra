@@ -11,7 +11,10 @@ import { config as loadEnv } from 'dotenv';
 import { resolve } from 'node:path';
 
 loadEnv({ path: resolve(__dirname, '../../.env') });
+loadEnv({ path: resolve(__dirname, '../../../.env') });
 loadEnv({ path: resolve(process.cwd(), '.env') });
+loadEnv({ path: resolve(process.cwd(), '../.env') });
+loadEnv({ path: resolve(process.cwd(), '../../.env') });
 
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';

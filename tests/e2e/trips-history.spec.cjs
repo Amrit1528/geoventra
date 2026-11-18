@@ -23,9 +23,9 @@ test('1. trip listing shows seeded trips with distance and speed', async ({ page
   await signIn(page, ADMIN);
   await page.goto('/trips');
   await expect(page.getByRole('heading', { name: 'Trips', level: 1 })).toBeVisible();
-  await expect(page.getByText('Distance')).toBeVisible();
-  await expect(page.getByText('Max speed')).toBeVisible();
-  await expect(page.getByText('Duration')).toBeVisible();
+  await expect(page.getByText('Distance').first()).toBeVisible();
+  await expect(page.getByText('Max speed').first()).toBeVisible();
+  await expect(page.getByText('Duration').first()).toBeVisible();
 });
 
 test('2. trip listing filters by status', async ({ page }) => {

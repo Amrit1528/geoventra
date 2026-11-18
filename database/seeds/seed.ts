@@ -815,6 +815,52 @@ async function seed(client: pg.Client): Promise<string[]> {
   );
   summary.push('device GEO-GPS-0001 (gps_tracker)');
 
+  // Unassign any existing active trackers from the seeded vehicles so the simulated
+  // GVT-* trackers can be bound without violating the active-vehicle unique constraint.
+  await client.query(
+    `UPDATE ${SCHEMA}.device_assignments SET unassigned_at = now() WHERE vehicle_id = ANY($1::uuid[]) AND unassigned_at IS NULL`,
+    [vehicleIds.slice(0, 3)],
+  );
+
+  // Simulated fleet trackers (GVT-*) — bind the GPS simulator's device IDs to the
+  // seeded vehicles so live telemetry is accepted by TrackingService.resolveVehicle().
+  for (let i = 0; i < Math.min(3, vehicleIds.length); i++) {
+    const serial = `GVT-${100000 + i}`;
+    const simDeviceId = await upsert(
+      client,
+      'devices',
+      { device_id: serial },
+      `f2000000-0000-4000-8000-00000000000${i + 1}`,
+      {
+        organisation_id: organisationId,
+        device_id: serial,
+        device_type: 'gps_tracker',
+        imei: `35209400123456${i + 7}`,
+        model: 'GV-Sim Tracker',
+        firmware_version: '1.0.0',
+        provider: 'geoventra-simulator',
+        status: 'online',
+        last_communication_at: new Date().toISOString(),
+        config: {},
+        serial_number: `SN-SIM-${String(i + 1).padStart(4, '0')}`,
+        metadata: { simulated: true },
+      },
+    );
+    await client.query(
+      `INSERT INTO ${SCHEMA}.device_assignments
+         (id, organisation_id, device_id, vehicle_id, assigned_at)
+       VALUES ($1, $2, $3, $4, now())
+       ON CONFLICT (id) DO UPDATE SET vehicle_id = EXCLUDED.vehicle_id, unassigned_at = NULL`,
+      [
+        `f6000000-0000-4000-8000-00000000000${i + 1}`,
+        organisationId,
+        simDeviceId,
+        vehicleIds[i],
+      ],
+    );
+    summary.push(`device ${serial} (gps_tracker, simulated)`);
+  }
+
   await upsert(
     client,
     'devices',
@@ -839,18 +885,9 @@ async function seed(client: pg.Client): Promise<string[]> {
   );
   summary.push('device GEO-OBD-0001 (obd_dongle)');
 
-  await client.query(
-    `INSERT INTO ${SCHEMA}.device_assignments
-       (id, organisation_id, device_id, vehicle_id, assigned_at)
-     VALUES ($1, $2, $3, $4, now())
-     ON CONFLICT (id) DO UPDATE SET vehicle_id = EXCLUDED.vehicle_id`,
-    [
-      'f5000000-0000-4000-8000-000000000001',
-      organisationId,
-      gpsTrackerId,
-      vehicleIds[0] ?? null,
-    ],
-  );
+  // GEO-GPS-0001 is left unassigned: the simulated GVT-* trackers are the active
+  // bindings for the seeded vehicles. Telemetry that names GEO-GPS-0001 still
+  // resolves through the vehicle hint (see TrackingService.resolveVehicle).
 
   await upsertGeofence(client, organisationId);
   summary.push('geofence Pune Depot');

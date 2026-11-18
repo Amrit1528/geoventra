@@ -1,5 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/auth/jwt-auth.guard.js';
+import { RequirePermissions } from '../common/auth/permissions.decorator.js';
+import { CurrentUser } from '../common/auth/current-user.decorator.js';
 import { VehiclesService } from './vehicles.service.js';
 
 @Controller('vehicles')
@@ -25,6 +27,13 @@ export class VehiclesController {
   @Patch(':id')
   update(@Req() req: any, @Param('id') id: string, @Body() body: any) {
     return this.vehiclesService.update(req.user.organisationId, id, body ?? {});
+  }
+
+  @Patch(':id/status')
+  @RequirePermissions('vehicles.write')
+  setStatus(@Req() req: any, @Param('id') id: string, @Body() body: any, @CurrentUser() user: any) {
+    const activeFlag = body?.active_flag ?? body?.activeFlag;
+    return this.vehiclesService.setStatus(req.user.organisationId, id, Boolean(activeFlag), user?.id, body?.reason ?? null);
   }
 
   @Delete(':id')

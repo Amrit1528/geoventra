@@ -134,7 +134,7 @@ export function VehicleIntelligencePanel({ vehicle, onClose, className }: Props)
               <Field label="Fleet/Group" value={vehicle.groupName ?? 'Unavailable'} />
               <Field label="Device" value={vehicle.deviceId ?? 'Not bound'} />
               <Field label="Device status" value={vehicle.deviceStatus ?? 'Unavailable'} />
-              <Field label="Location" value={vehicle.city ?? `${vehicle.latitude.toFixed(4)}, ${vehicle.longitude.toFixed(4)}`} />
+              <Field label="Location" value={vehicle.city ?? (vehicle.latitude !== null && vehicle.longitude !== null ? `${vehicle.latitude.toFixed(4)}, ${vehicle.longitude.toFixed(4)}` : 'No GPS fix')} />
               <Field label="Last communication" value={vehicle.recordedAt ? formatDateTime(vehicle.recordedAt) : 'Unavailable'} />
             </CardContent></Card>
             <div className="grid grid-cols-2 gap-3">
@@ -155,8 +155,8 @@ export function VehicleIntelligencePanel({ vehicle, onClose, className }: Props)
         {tab === 'telemetry' ? (
           <div className="space-y-4">
             <Card><CardHeader><CardTitle as="h3">GPS</CardTitle></CardHeader><CardContent className="grid grid-cols-2 gap-3 text-sm">
-              <Field label="Latitude" value={Number.isFinite(vehicle.latitude) ? vehicle.latitude.toFixed(6) : 'Unavailable'} />
-              <Field label="Longitude" value={Number.isFinite(vehicle.longitude) ? vehicle.longitude.toFixed(6) : 'Unavailable'} />
+              <Field label="Latitude" value={vehicle.latitude !== null ? vehicle.latitude.toFixed(6) : 'No GPS fix'} />
+              <Field label="Longitude" value={vehicle.longitude !== null ? vehicle.longitude.toFixed(6) : 'No GPS fix'} />
               <Field label="Speed" value={fmt(vehicle.speedKph, 'km/h')} />
               <Field label="Heading" value={Number.isFinite(vehicle.heading) ? `${Math.round(vehicle.heading)}°` : 'Unavailable'} />
               <Field label="Accuracy" value={vehicle.accuracyM != null ? `${vehicle.accuracyM.toFixed(0)} m` : 'Unavailable'} />

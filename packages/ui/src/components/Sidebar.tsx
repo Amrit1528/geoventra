@@ -12,6 +12,7 @@ import {
   Truck,
   Users,
   Gauge,
+  Fuel,
   Cpu,
   Route,
   Hexagon,
@@ -54,6 +55,7 @@ export const SIDEBAR_NAV_ITEMS: readonly SidebarNavItem[] = [
 
   { label: 'Engine Health', href: '/engine', icon: Gauge, group: 'Vehicle Intelligence' },
   { label: 'TPMS & Tyre Health', href: '/tpms', icon: CircleGauge, group: 'Vehicle Intelligence' },
+  { label: 'Fuel Management', href: '/fuel', icon: Fuel, group: 'Vehicle Intelligence' },
   { label: 'Maintenance', href: '/maintenance', icon: Wrench, group: 'Vehicle Intelligence' },
 
   { label: 'Reports & Analytics', href: '/reports', icon: BarChart3, group: 'Business' },

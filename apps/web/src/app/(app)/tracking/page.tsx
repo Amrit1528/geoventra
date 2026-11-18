@@ -227,12 +227,12 @@ export default function TrackingPage(): ReactElement {
         <div className="mt-3 space-y-2">
           <div className="relative">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search registration, driver, name…" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-app)] pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]" aria-label="Search vehicles" />
+            <input data-testid="tracking-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search registration, driver, name…" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-app)] pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-[var(--ring)]" aria-label="Search vehicles" />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Select aria-label="Status filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} options={[{ value: 'all', label: 'All statuses' }, { value: 'moving', label: 'Moving' }, { value: 'idle', label: 'Idle' }, { value: 'stopped', label: 'Stopped' }, { value: 'offline', label: 'Offline' }]} />
+            <Select data-testid="tracking-status-filter" aria-label="Status filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} options={[{ value: 'all', label: 'All statuses' }, { value: 'moving', label: 'Moving' }, { value: 'idle', label: 'Idle' }, { value: 'stopped', label: 'Stopped' }, { value: 'offline', label: 'Offline' }]} />
             <Select aria-label="Sort vehicles" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)} options={[{ value: 'lastUpdate', label: 'Last update' }, { value: 'speed', label: 'Speed' }, { value: 'name', label: 'Name' }, { value: 'status', label: 'Status' }]} />
-            <Select aria-label="Fleet/group filter" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} options={[{ value: 'all', label: 'All groups' }, ...groups.map((g) => ({ value: g, label: g }))]} />
+            <Select data-testid="tracking-group-filter" aria-label="Fleet/group filter" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} options={[{ value: 'all', label: 'All groups' }, ...groups.map((g) => ({ value: g, label: g }))]} />
             <Select aria-label="Vehicle type filter" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} options={[{ value: 'all', label: 'All types' }, ...types.map((t) => ({ value: t, label: t }))]} />
           </div>
         </div>
@@ -272,7 +272,7 @@ export default function TrackingPage(): ReactElement {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h1 className="text-base font-bold tracking-tight text-[var(--text-primary)] sm:text-lg">Live Tracking — Fleet Command Centre</h1>
-            <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest', socketStatus === 'live' || socketStatus === 'reconnected' ? 'border-emerald-200 text-emerald-700 [html[data-theme="dark"]_&]:border-emerald-800/60 [html[data-theme="dark"]_&]:text-emerald-400' : stale ? 'border-red-200 text-red-700 [html[data-theme="dark"]_&]:border-red-800/60 [html[data-theme="dark"]_&]:text-red-400' : 'border-amber-200 text-amber-700 [html[data-theme="dark"]_&]:border-amber-800/60 [html[data-theme="dark"]_&]:text-amber-400')}>
+            <span data-testid="tracking-socket-status" className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest', socketStatus === 'live' || socketStatus === 'reconnected' ? 'border-emerald-200 text-emerald-700 [html[data-theme="dark"]_&]:border-emerald-800/60 [html[data-theme="dark"]_&]:text-emerald-400' : stale ? 'border-red-200 text-red-700 [html[data-theme="dark"]_&]:border-red-800/60 [html[data-theme="dark"]_&]:text-red-400' : 'border-amber-200 text-amber-700 [html[data-theme="dark"]_&]:border-amber-800/60 [html[data-theme="dark"]_&]:text-amber-400')}>
               <span className={cn('h-1.5 w-1.5 rounded-full', socketStatus === 'live' || socketStatus === 'reconnected' ? 'bg-emerald-500' : stale ? 'bg-red-500' : 'bg-amber-500 animate-pulse')} />
               {socketStatus === 'live' ? 'Live' : socketStatus}
             </span>
@@ -290,8 +290,47 @@ export default function TrackingPage(): ReactElement {
 
       <div className="flex min-h-0 flex-1">
         {/* Left: Explorer — desktop: fixed-width panel; mobile: full-width bottom sheet */}
-        <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden">
-          {Explorer}
+        <div className="flex min-w-0 flex-col gap-3 overflow-hidden lg:w-[280px] lg:flex-none">
+          
+          {/* Map legend — collapsed disclosure */}
+          <button
+            type="button"
+            className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors px-2 py-1 rounded-lg hover:bg-[var(--bg-surface-hover)]"
+            onClick={() => setLegendVisible(!legendVisible)}
+            aria-expanded={legendVisible}
+          >
+            <Layers size={10} />
+            {legendVisible ? 'Hide map legend' : 'Map legend'}
+          </button>
+          {legendVisible && (
+            <div className="mt-1 pl-2 border-l border-[var(--border)]">
+              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded shadow text-[10px]">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Legend</span>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-0.5 text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
+                    onClick={() => setLegendVisible(false)}
+                    aria-label="Close legend"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="p-2">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <LegendDot color="#16a34a" label="Moving" />
+                    <LegendDot color="#f59e0b" label="Idle" />
+                    <LegendDot color="#64748b" label="Stopped" />
+                    <LegendDot color="#475569" label="Offline" />
+                    <LegendDot color="#ef4444" label="Critical alert" />
+                    <LegendDot color="#14b8a6" label="Selected / route" />
+                  </div>
+                  <div className="mt-1 text-[10px] text-[var(--text-muted)]">Origin: green · Destination: red · Halt: amber</div>
+                </div>
+              </div>
+            </div>
+          )}
+        {Explorer}
         </div>
 
         {/* Map — flexible center panel */}
@@ -330,44 +369,15 @@ export default function TrackingPage(): ReactElement {
             <button type="button" className="map-toolbar__btn" title="Toggle stops" aria-label="Toggle stops" aria-pressed={showStops} onClick={() => setShowStops((v) => !v)}><Radio size={16} /></button>
           </div>
 
-          {/* Legend in side panel (fixed position, outside map) */}
-          {legendVisible && (
-            <div className="absolute right-2 top-12 z-40 w-64">
-              <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-lg overflow-hidden">
-                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Legend</span>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded p-0.5 text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
-                    onClick={() => setLegendVisible(false)}
-                    aria-label="Close legend"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-                <div className="p-2">
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                    <LegendDot color="#16a34a" label="Moving" />
-                    <LegendDot color="#f59e0b" label="Idle" />
-                    <LegendDot color="#64748b" label="Stopped" />
-                    <LegendDot color="#475569" label="Offline" />
-                    <LegendDot color="#ef4444" label="Critical alert" />
-                    <LegendDot color="#14b8a6" label="Selected / route" />
-                  </div>
-                  <div className="mt-1 text-[10px] text-[var(--text-muted)]">Origin: green · Destination: red · Halt: amber</div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
 
-        {/* Right intelligence panel (desktop) */}
+          {/* Right intelligence panel (desktop) */}
         {selected ? (
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden lg:w-[320px] xl:w-[360px]">
+          <div className="flex min-w-0 flex-col overflow-hidden lg:w-[320px] lg:flex-none">
             <VehicleDrawer vehicle={selected} onClose={() => setSelectedId(null)} />
           </div>
         ) : (
-          <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 border-l border-[var(--border)] bg-[var(--bg-card)] p-6 text-center lg:w-[320px] xl:w-[360px]">
+          <div className="flex min-w-0 flex-col items-center justify-center gap-3 border-l border-[var(--border)] bg-[var(--bg-card)] p-6 text-center lg:w-[320px] lg:flex-none">
             <Navigation size={24} className="text-[var(--text-muted)]" />
             <p className="text-sm font-semibold text-[var(--text-primary)]">Select a vehicle</p>
             <p className="max-w-xs text-xs text-[var(--text-secondary)]">Hover a marker for a live summary, or click a vehicle on the map/list to open full in-map intelligence, telemetry, route and history.</p>

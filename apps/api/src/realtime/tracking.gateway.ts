@@ -103,7 +103,9 @@ export class TrackingGateway implements OnGatewayConnection, OnGatewayDisconnect
     const token = client.handshake.auth?.token ?? this.extractBearerToken(client.handshake.headers?.authorization);
     if (typeof token !== 'string' || token.length === 0) return null;
     try {
-      const payload = await this.jwtService.verifyAsync<{ org?: string }>(token);
+      const payload = await this.jwtService.verifyAsync<{ org?: string }>(token, {
+        secret: process.env.JWT_ACCESS_SECRET ?? 'geoventra-development-access-secret',
+      });
       return payload.org ?? null;
     } catch {
       return null;
@@ -112,9 +114,14 @@ export class TrackingGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private extractBearerToken(header: unknown): string | null {
     if (typeof header !== 'string') return null;
-    const [scheme, token] = header.split(' ');
-    if (!scheme || scheme.toLowerCase() !== 'bearer' || !token) return null;
-    return token.trim() || null;
+    const trimmed = header.trim();
+    if (trimmed.length === 0) return null;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length === 2 && parts[0]?.toLowerCase() === 'bearer') {
+      return parts[1]?.trim() || null;
+    }
+    if (parts.length === 1) return trimmed;
+    return null;
   }
 
   private dispatch(event: { organisationId: string; positions: LivePosition[]; emittedAt: string }): void {

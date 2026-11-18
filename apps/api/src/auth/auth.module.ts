@@ -12,9 +12,11 @@ import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from '../common/auth/jwt-auth.guard.js';
 import { PermissionsGuard } from '../common/auth/permissions.guard.js';
 import { PasswordService } from '../common/auth/password.service.js';
+import { JwtModule } from '../common/auth/jwt.module.js';
 
 @Module({
   controllers: [AuthController],
+  imports: [JwtModule],
   providers: [
     AuthService,
     PasswordService,

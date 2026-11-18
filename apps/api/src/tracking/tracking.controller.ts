@@ -169,11 +169,18 @@ function toNormalizedEvent(value: unknown): NormalizedGpsEvent | null {
   const record = value as Record<string, unknown>;
 
   if (typeof record.deviceId === 'string' && typeof record.latitude === 'number') {
+    const lat = record.latitude;
+    const lng = record.longitude;
+    // Validate that both coordinates are finite and within valid latitude/longitude bounds.
+    // Reject invalid events instead of substituting 0 for a missing longitude.
+    if (typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+
     return {
       deviceId: record.deviceId,
       vehicleId: typeof record.vehicleId === 'string' ? record.vehicleId : '',
-      latitude: record.latitude,
-      longitude: Number(record.longitude ?? 0),
+      latitude: lat,
+      longitude: lng,
       speedKph: Number(record.speedKph ?? 0),
       heading: Number(record.heading ?? 0),
       ignition: Boolean(record.ignition),

@@ -88,6 +88,8 @@ export interface VehicleHistoryPoint {
   speedKph: number;
   heading: number;
   ignition: boolean;
+  /** Derived movement state (moving/idle/stopped) for this sample. */
+  status: 'moving' | 'idle' | 'stopped';
   recordedAt: string;
   /** When the frame was persisted by the platform (vs. the device's own clock). */
   receivedAt: string;
@@ -139,6 +141,8 @@ export interface VehicleTrackingStats {
   idleSeconds: number;
   stoppedSeconds: number;
   gpsDataGaps: VehicleGpsGap[];
+  /** Number of GPS data gaps in the window. */
+  gapCount: number;
 }
 
 // ── Trips ────────────────────────────────────────────────────────────────────

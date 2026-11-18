@@ -44,7 +44,9 @@ export class JwtAuthGuard implements CanActivate {
 
     let payload: AccessTokenPayload;
     try {
-      payload = await this.jwtService.verifyAsync<AccessTokenPayload>(token);
+      payload = await this.jwtService.verifyAsync<AccessTokenPayload>(token, {
+        secret: process.env.JWT_ACCESS_SECRET ?? 'geoventra-development-access-secret',
+      });
     } catch {
       throw new UnauthorizedException('The access token is invalid or has expired');
     }
@@ -70,7 +72,15 @@ export class JwtAuthGuard implements CanActivate {
 /** Pull the raw token out of an `Authorization: Bearer <token>` header. */
 export function extractBearerToken(header: string | string[] | undefined): string | null {
   if (typeof header !== 'string') return null;
-  const [scheme, token] = header.split(' ');
-  if (!scheme || scheme.toLowerCase() !== 'bearer' || !token) return null;
-  return token.trim() || null;
+  const trimmed = header.trim();
+  if (trimmed.length === 0) return null;
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 2 && parts[0]?.toLowerCase() === 'bearer') {
+    return parts[1]?.trim() || null;
+  }
+  // Accept a raw token (used by some clients/tests) as a fallback.
+  if (parts.length === 1) {
+    return trimmed;
+  }
+  return null;
 }

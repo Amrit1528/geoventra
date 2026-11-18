@@ -260,6 +260,34 @@ export class FuelService {
     };
   }
 
+  async acknowledgeAnomaly(organisationId: string, vehicleId: string, anomalyId: string) {
+    await this.ensureVehicle(organisationId, vehicleId);
+    const row = await this.database.queryOne<any>(
+      `UPDATE geoventra.fuel_anomaly_alerts
+          SET acknowledged_at = COALESCE(acknowledged_at, now())
+        WHERE organisation_id=$1 AND vehicle_id=$2 AND id=$3
+      RETURNING id, vehicle_id AS "vehicleId", recorded_at AS "recordedAt", type, severity, description,
+                is_confirmed AS "isConfirmed", acknowledged_at AS "acknowledgedAt", created_at AS "createdAt"`,
+      [organisationId, vehicleId, anomalyId],
+    );
+    if (!row) throw new NotFoundException('Fuel anomaly not found');
+    return row;
+  }
+
+  async confirmAnomaly(organisationId: string, vehicleId: string, anomalyId: string) {
+    await this.ensureVehicle(organisationId, vehicleId);
+    const row = await this.database.queryOne<any>(
+      `UPDATE geoventra.fuel_anomaly_alerts
+          SET is_confirmed = true, acknowledged_at = COALESCE(acknowledged_at, now())
+        WHERE organisation_id=$1 AND vehicle_id=$2 AND id=$3
+      RETURNING id, vehicle_id AS "vehicleId", recorded_at AS "recordedAt", type, severity, description,
+                is_confirmed AS "isConfirmed", acknowledged_at AS "acknowledgedAt", created_at AS "createdAt"`,
+      [organisationId, vehicleId, anomalyId],
+    );
+    if (!row) throw new NotFoundException('Fuel anomaly not found');
+    return row;
+  }
+
   async listExpenses(organisationId: string, vehicleId: string, range: Range) {
     await this.ensureVehicle(organisationId, vehicleId);
     const params: any[] = [organisationId, vehicleId];

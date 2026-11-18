@@ -33,6 +33,12 @@ import {
 import { SimulatedVehicle } from './vehicle-simulator.js';
 import { loadSimulatorConfig } from './config.js';
 
+import { config as loadEnv } from 'dotenv';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../../.env') });
+
 const config = loadSimulatorConfig();
 const adapter = new SimulatorAdapter();
 

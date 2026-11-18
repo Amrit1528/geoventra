@@ -114,7 +114,11 @@ export function FleetMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
+  const lastClustersRef = useRef<string>('');
   const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
+  const lastFitSignalRef = useRef<number>(0);
+  const lastFitSelectedSignalRef = useRef<number>(0);
+  const lastFitRouteSignalRef = useRef<number>(0);
   const [mapReady, setMapReady] = useState(false);
   const [viewport, setViewport] = useState<{ bounds: [number, number, number, number]; zoom: number } | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -150,7 +154,17 @@ export function FleetMap({
       attributionControl: { compact: true },
       maxZoom: 19,
       minZoom: 2,
+      scrollZoom: true,
+      doubleClickZoom: true,
+      dragPan: true,
+      dragRotate: false,
+      keyboard: true,
+      touchZoomRotate: true,
     });
+
+    map.scrollZoom.enable();
+    map.doubleClickZoom.enable();
+    map.dragPan.enable();
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'bottom-right');
     map.on('error', (event: unknown) => {
@@ -230,6 +244,10 @@ export function FleetMap({
   // re-render. It only performs fitBounds when fitSignal/fitSelectedSignal/
   // fitRouteSignal are positive AND the container has a valid size. GPS updates
   // do NOT trigger fitBounds.
+  // 
+  // The dependency array does NOT include `positions` — this prevents the effect
+  // from re-running on every GPS position update, which would reset the user's
+  // map view. Only explicit fit signals or container resize trigger a fit.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return undefined;
@@ -239,37 +257,43 @@ export function FleetMap({
       const { w, h } = size;
       if (w < 50 || h < 50) return;
 
-      if (fitSignal !== undefined && fitSignal > 0) {
+      if (fitSignal !== undefined && fitSignal > 0 && fitSignal !== lastFitSignalRef.current) {
         // Fit fleet: gather valid coordinates for ALL positions.
+        // Vehicles without coordinates (null lat/lng) are excluded.
         const coords = positions
-          .filter((p) => isValidLatLng(p.latitude, p.longitude) && p.latitude !== 0 && p.longitude !== 0)
+          .filter((p): p is LivePosition & { latitude: number; longitude: number } =>
+            p.latitude !== null && p.longitude !== null && isValidLatLng(p.latitude, p.longitude)
+          )
           .map((p) => [p.longitude, p.latitude] as [number, number]);
         if (coords.length === 0) return;
         const bounds = new maplibregl.LngLatBounds();
         for (const c of coords) bounds.extend(c);
         const padding = Math.min(w, h) < 400 ? 70 : 50;
-        map.fitBounds(bounds, { padding, maxZoom: 14, duration: 700 });
+        lastFitSignalRef.current = fitSignal;
+        map.fitBounds(bounds, { padding, maxZoom: 14, duration: 0 });
         return;
       }
 
-      if (fitSelectedSignal !== undefined && fitSelectedSignal > 0 && selectedId) {
+      if (fitSelectedSignal !== undefined && fitSelectedSignal > 0 && fitSelectedSignal !== lastFitSelectedSignalRef.current && selectedId) {
         const p = positionById.get(selectedId);
-        if (!p || !isValidLatLng(p.latitude, p.longitude)) return;
+        if (!p || p.latitude === null || p.longitude === null || !isValidLatLng(p.latitude, p.longitude)) return;
+        lastFitSelectedSignalRef.current = fitSelectedSignal;
         map.easeTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 14), duration: 600 });
         return;
       }
 
-      if (fitRouteSignal !== undefined && fitRouteSignal > 0) {
+      if (fitRouteSignal !== undefined && fitRouteSignal > 0 && fitRouteSignal !== lastFitRouteSignalRef.current) {
         const coords: [number, number][] = [];
         for (const p of trailPoints) {
-          if (isValidLatLng(p.latitude, p.longitude)) coords.push([p.longitude, p.latitude]);
+          if (p.latitude !== null && p.longitude !== null && isValidLatLng(p.latitude, p.longitude)) coords.push([p.longitude, p.latitude]);
         }
         for (const s of routeStops) {
-          if (isValidLatLng(s.latitude, s.longitude)) coords.push([s.longitude, s.latitude]);
+          if (s.latitude !== null && s.longitude !== null && isValidLatLng(s.latitude, s.longitude)) coords.push([s.longitude, s.latitude]);
         }
         if (coords.length === 0) return;
         const bounds = new maplibregl.LngLatBounds();
         for (const c of coords) bounds.extend(c);
+        lastFitRouteSignalRef.current = fitRouteSignal;
         map.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 700 });
       }
     };
@@ -290,7 +314,7 @@ export function FleetMap({
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [fitSignal, fitSelectedSignal, fitRouteSignal, mapReady, positions, selectedId, size, positionById, trailPoints, routeStops]);
+  }, [fitSignal, fitSelectedSignal, fitRouteSignal, mapReady, selectedId, size, positionById, trailPoints, routeStops]);
 
   // ── Geofence layers ───────────────────────────────────────────────────────
   const geofenceGeoJson = useMemo(() => ({
@@ -370,9 +394,13 @@ export function FleetMap({
   // ── Supercluster ──────────────────────────────────────────────────────────
   const clusterIndex = useMemo(() => {
     const index = new Supercluster<ClusterPointProperties>({ radius: CLUSTER_RADIUS, maxZoom: 12, minPoints: 2 });
+    // Vehicles without coordinates (null lat/lng) are excluded from clustering.
+    // Vehicles with coordinates are included with their current position.
     index.load(
       positions
-        .filter((p) => isValidLatLng(p.latitude, p.longitude))
+        .filter((p): p is LivePosition & { latitude: number; longitude: number } =>
+          p.latitude !== null && p.longitude !== null && isValidLatLng(p.latitude, p.longitude)
+        )
         .map((p) => ({
           type: 'Feature',
           properties: {
@@ -403,6 +431,10 @@ export function FleetMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+
+    const clustersKey = JSON.stringify(clusters);
+    if (clustersKey === lastClustersRef.current) return;
+    lastClustersRef.current = clustersKey;
 
     const markers = markersRef.current;
     const popup = hoverPopupRef.current;
@@ -456,7 +488,7 @@ export function FleetMap({
       upsert(props.vehicleId, lng, lat, () => {
         const el = document.createElement('button');
         el.type = 'button';
-        el.className = 'vehicle-marker';
+        el.className = vehicleMarkerClass(props.status, isSelected, hasAlerts);
         el.dataset.testid = 'vehicle-marker';
         el.dataset.vehicleId = props.vehicleId;
         el.innerHTML = markerInnerHtml(props.registrationNumber, props.status, props.heading, props.speedKph, isSelected, hasAlerts, labelVisible);
@@ -550,7 +582,10 @@ function hoverCardHtml(p: LivePosition): string {
   const offline = p.status === 'offline' || (p.ageSeconds ?? 0) > 900;
   const speed = Number.isFinite(p.speedKph) ? `${p.speedKph.toFixed(0)} km/h` : 'Unavailable';
   const heading = isHeadingKnown(p.heading) ? directionLabel(p.heading) : 'Unavailable';
-  const location = p.city || (Number.isFinite(p.latitude) && Number.isFinite(p.longitude) ? `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}` : 'Unavailable');
+  const location = p.city ||
+    (p.latitude !== null && p.longitude !== null && Number.isFinite(p.latitude) && Number.isFinite(p.longitude)
+      ? `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}`
+      : 'Unavailable');
   const acc = p.accuracyM != null && Number.isFinite(p.accuracyM) ? `${p.accuracyM.toFixed(0)} m` : 'Unavailable';
   const odo = Number.isFinite(p.odometerKm) ? `${p.odometerKm.toLocaleString()} km` : 'Unavailable';
   const battery = p.batteryVoltage != null && Number.isFinite(p.batteryVoltage) ? `${p.batteryVoltage.toFixed(1)} V` : 'Unavailable';

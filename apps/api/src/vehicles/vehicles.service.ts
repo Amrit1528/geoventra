@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../common/infrastructure/database.service.js';
+import { AdminService } from '../admin/admin.service.js';
 import type { VehicleSummary, Paginated, VehicleDetail } from '@geoventra/contracts';
 
 function toNum(v: unknown): number {
@@ -36,15 +37,16 @@ function mapSummary(row: any): VehicleSummary {
     lastIgnition: row.last_ignition ?? null,
     lastBatteryVoltage: row.last_battery_voltage != null ? Number(row.last_battery_voltage) : null,
     lastRecordedAt: row.last_recorded_at ?? row.lastRecordedAt ?? null,
+    activeFlag: row.active_flag ?? row.activeFlag ?? true,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
   };
 }
 
 @Injectable()
 export class VehiclesService {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(private readonly database: DatabaseService, private readonly adminService: AdminService) {}
 
-  async list(organisationId: string, query: { q?: string; search?: string; category?: string; status?: string; page?: number; pageSize?: number }): Promise<Paginated<VehicleSummary>> {
+  async list(organisationId: string, query: { q?: string; search?: string; category?: string; status?: string; activeFlag?: any; active?: any; page?: number; pageSize?: number }): Promise<Paginated<VehicleSummary>> {
     const page = Math.max(1, Number(query.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 25)));
     const where = ['v.organisation_id = $1'];
@@ -52,6 +54,12 @@ export class VehiclesService {
     let i = 2;
     if (query.status) { where.push(`v.status = $${i++}`); params.push(query.status); }
     if (query.category) { where.push(`v.category = $${i++}`); params.push(query.category); }
+    const activeRaw = query.activeFlag ?? query.active;
+    if (activeRaw !== undefined && activeRaw !== null && activeRaw !== '' && activeRaw !== 'all') {
+      const val = String(activeRaw).toLowerCase();
+      if (val === 'true' || val === '1' || val === 'active') { where.push(`v.active_flag = TRUE`); }
+      else if (val === 'false' || val === '0' || val === 'inactive') { where.push(`v.active_flag = FALSE`); }
+    }
     const search = (query.search ?? query.q ?? '').trim();
     if (search) { where.push(`(v.registration_number ILIKE $${i} OR v.name ILIKE $${i} OR v.vin ILIKE $${i})`); params.push(`%${search}%`); i++; }
 
@@ -60,7 +68,7 @@ export class VehiclesService {
     const rows = await this.database.query(
       `SELECT v.id, v.registration_number, v.name, v.category, v.manufacturer, v.model, v.fuel_type, v.year, v.status,
               v.odometer_km, v.engine_hours, v.maintenance_status, v.group_id, v.city, v.assigned_driver_id,
-              v.vin, v.insurance_expiry, v.registration_expiry, v.notes, v.created_at,
+              v.active_flag, v.vin, v.insurance_expiry, v.registration_expiry, v.notes, v.created_at,
               g.name AS group_name, d.name AS assigned_driver_name
        FROM geoventra.vehicles v
        LEFT JOIN geoventra.vehicle_groups g ON g.id = v.group_id
@@ -108,10 +116,10 @@ export class VehiclesService {
 
   async create(organisationId: string, input: any): Promise<VehicleSummary> {
     const row = await this.database.queryOne<any>(
-      `INSERT INTO geoventra.vehicles (organisation_id, registration_number, name, category, manufacturer, model, fuel_type, year, vin, city, group_id, assigned_driver_id, status, odometer_km, engine_hours, maintenance_status, insurance_expiry, registration_expiry, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      `INSERT INTO geoventra.vehicles (organisation_id, registration_number, name, category, manufacturer, model, fuel_type, year, vin, city, group_id, assigned_driver_id, status, odometer_km, engine_hours, maintenance_status, insurance_expiry, registration_expiry, notes, active_flag)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *`,
-      [organisationId, input.registrationNumber, input.name, input.category ?? 'car', input.manufacturer, input.model, input.fuelType ?? 'diesel', input.year ?? new Date().getFullYear(), input.vin ?? '', input.city ?? null, input.groupId ?? null, input.assignedDriverId ?? null, input.status ?? 'offline', input.odometerKm ?? 0, input.engineHours ?? 0, input.maintenanceStatus ?? 'ok', input.insuranceExpiry ?? null, input.registrationExpiry ?? null, input.notes ?? null],
+      [organisationId, input.registrationNumber, input.name, input.category ?? 'car', input.manufacturer, input.model, input.fuelType ?? 'diesel', input.year ?? new Date().getFullYear(), input.vin ?? '', input.city ?? null, input.groupId ?? null, input.assignedDriverId ?? null, input.status ?? 'offline', input.odometerKm ?? 0, input.engineHours ?? 0, input.maintenanceStatus ?? 'ok', input.insuranceExpiry ?? null, input.registrationExpiry ?? null, input.notes ?? null, input.activeFlag ?? input.active_flag ?? true],
     );
     return mapSummary(row);
   }
@@ -122,7 +130,7 @@ export class VehiclesService {
     const fields: string[] = ['updated_at = now()'];
     const params: any[] = [];
     let i = 1;
-    const map: Record<string, string> = { registrationNumber: 'registration_number', fuelType: 'fuel_type', groupId: 'group_id', assignedDriverId: 'assigned_driver_id', odometerKm: 'odometer_km', engineHours: 'engine_hours', maintenanceStatus: 'maintenance_status', insuranceExpiry: 'insurance_expiry', registrationExpiry: 'registration_expiry' };
+    const map: Record<string, string> = { registrationNumber: 'registration_number', fuelType: 'fuel_type', groupId: 'group_id', assignedDriverId: 'assigned_driver_id', odometerKm: 'odometer_km', engineHours: 'engine_hours', maintenanceStatus: 'maintenance_status', insuranceExpiry: 'insurance_expiry', registrationExpiry: 'registration_expiry', activeFlag: 'active_flag', active_flag: 'active_flag' };
     for (const [k, v] of Object.entries(input ?? {})) {
       if (v === undefined) continue;
       const col = map[k] ?? k;
@@ -134,11 +142,31 @@ export class VehiclesService {
     return mapSummary(row);
   }
 
+  async setStatus(organisationId: string, id: string, activeFlag: boolean, changedBy?: string | null, reason?: string | null): Promise<VehicleSummary> {
+    const existing = await this.database.queryOne<any>('SELECT id, active_flag FROM geoventra.vehicles WHERE organisation_id = $1 AND id = $2', [organisationId, id]);
+    if (!existing) throw new NotFoundException('Vehicle not found');
+    const previous = existing.active_flag;
+    const row = await this.database.queryOne<any>('UPDATE geoventra.vehicles SET active_flag = $3, updated_at = now() WHERE organisation_id = $1 AND id = $2 RETURNING *', [organisationId, id, activeFlag]);
+    if (!row) throw new NotFoundException('Vehicle not found');
+    try {
+      await this.adminService.createAuditLog(organisationId, changedBy ?? null, activeFlag ? 'VEHICLE_ENABLED' : 'VEHICLE_DISABLED', 'vehicle', id, { previousActiveFlag: previous, newActiveFlag: activeFlag, reason: reason ?? null });
+    } catch { /* audit best effort */ }
+    return mapSummary(row);
+  }
+
   async remove(organisationId: string, id: string): Promise<void> {
     await this.database.query('DELETE FROM geoventra.vehicles WHERE organisation_id = $1 AND id = $2', [organisationId, id]);
   }
 
   async assignDriver(organisationId: string, vehicleId: string, driverId: string): Promise<VehicleSummary> {
+    const vehicle = await this.database.queryOne<any>('SELECT id, active_flag FROM geoventra.vehicles WHERE organisation_id = $1 AND id = $2', [organisationId, vehicleId]);
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    if (!vehicle.active_flag) throw new Error('Cannot assign a driver to an inactive vehicle');
+    if (driverId) {
+      const driver = await this.database.queryOne<any>('SELECT id, active_flag FROM geoventra.drivers WHERE organisation_id = $1 AND id = $2', [organisationId, driverId]);
+      if (!driver) throw new NotFoundException('Driver not found');
+      if (!driver.active_flag) throw new Error('Cannot assign an inactive driver');
+    }
     const row = await this.database.queryOne<any>('UPDATE geoventra.vehicles SET assigned_driver_id = $3, updated_at = now() WHERE organisation_id = $1 AND id = $2 RETURNING *', [organisationId, vehicleId, driverId]);
     if (!row) throw new NotFoundException('Vehicle not found');
     return mapSummary(row);

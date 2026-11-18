@@ -242,6 +242,7 @@ export interface VehicleSummary {
   lastIgnition: boolean | null;
   lastBatteryVoltage: number | null;
   lastRecordedAt: string | null;
+  activeFlag: boolean;
   createdAt: string;
 }
 
@@ -283,6 +284,7 @@ export interface DriverSummary {
   harshBraking30d: number;
   harshAcceleration30d: number;
   speeding30d: number;
+  activeFlag: boolean;
   createdAt: string;
 }
 
@@ -315,8 +317,10 @@ export interface LivePosition {
   name: string;
   category: VehicleCategory;
   status: VehicleStatus;
-  latitude: number;
-  longitude: number;
+  /** Latitude in degrees, or null when the vehicle has no GPS fix. */
+  latitude: number | null;
+  /** Longitude in degrees, or null when the vehicle has no GPS fix. */
+  longitude: number | null;
   speedKph: number;
   heading: number;
   ignition: boolean;
@@ -542,6 +546,7 @@ export interface DeviceSummary {
   vehicleId: string | null;
   vehicleRegistration: string | null;
   config: Record<string, unknown>;
+  activeFlag: boolean;
   createdAt: string;
 }
 

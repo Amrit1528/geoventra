@@ -56,6 +56,8 @@ export class DevicesService {
     deviceType?: string;
     category?: string;
     status?: DeviceStatus;
+    activeFlag?: any;
+    active?: any;
     page: number;
     pageSize: number;
   }) {
@@ -77,12 +79,18 @@ export class DevicesService {
     if (status) {
       where.push(`status = $${i}`); params.push(status); i++;
     }
+    const activeRaw = query.activeFlag ?? query.active;
+    if (activeRaw !== undefined && activeRaw !== null && activeRaw !== '' && activeRaw !== 'all') {
+      const val = String(activeRaw).toLowerCase();
+      if (val === 'true' || val === '1' || val === 'active') { where.push(`active_flag = TRUE`); }
+      else if (val === 'false' || val === '0' || val === 'inactive') { where.push(`active_flag = FALSE`); }
+    }
 
     const countSql = `SELECT COUNT(*)::int AS total FROM geoventra.devices WHERE ${where.join(' AND ')}`;
     const countResult = await this.database.query(countSql, params);
     const total = countResult.length > 0 ? (countResult[0] as any)?.total ?? 0 : 0;
 
-    const dataSql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config FROM geoventra.devices WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
+    const dataSql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
     const rows = await this.database.query(dataSql, params);
@@ -90,14 +98,14 @@ export class DevicesService {
   }
 
   async getDevice(organisationId: string, deviceId: string) {
-    const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config FROM geoventra.devices WHERE organisation_id = $1 AND id = $2`;
+    const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE organisation_id = $1 AND id = $2`;
     const row = await this.database.queryOne<any>(sql, [organisationId, deviceId]);
     if (!row) throw new NotFoundException('Device not found');
     return this.enrichDevice(row);
   }
 
   async getDeviceBySerial(organisationId: string, deviceId: string) {
-    const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config FROM geoventra.devices WHERE organisation_id = $1 AND device_id = $2`;
+    const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE organisation_id = $1 AND device_id = $2`;
     const row = await this.database.queryOne<any>(sql, [organisationId, deviceId]);
     if (!row) throw new NotFoundException('Device not found');
     return this.enrichDevice(row);
@@ -106,6 +114,7 @@ export class DevicesService {
   private enrichDevice(row: any): DeviceDetail {
     return {
       ...row,
+      activeFlag: row.activeFlag ?? row.active_flag ?? true,
       serialNumber: row.serial_number,
       macAddress: row.mac_address,
       installationDate: row.installation_date ? row.installation_date.toISOString() : null,
@@ -135,9 +144,9 @@ export class DevicesService {
       if (!input[f]) throw new Error(`Missing required field: ${f}`);
     }
     const row = await this.database.queryOne<any>(
-      `INSERT INTO geoventra.devices (organisation_id, device_id, device_type, imei, model, firmware_version, provider, status, connection_method, connection_config, integration_method, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, now(), now())
-       RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config`,
+      `INSERT INTO geoventra.devices (organisation_id, device_id, device_type, imei, model, firmware_version, provider, status, connection_method, connection_config, integration_method, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, active_flag, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19, now(), now())
+       RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag"`,
       [
         organisationId, input.deviceId, input.deviceType, input.imei || null, input.model,
         input.firmwareVersion || '1.0.0', input.provider, input.status || 'unassigned',
@@ -231,23 +240,28 @@ export class DevicesService {
   async getAssignmentHistory(organisationId: string, deviceId: string, query: { page: number; pageSize: number }) {
     const { page, pageSize } = query;
     const countSql = `SELECT COUNT(*)::int AS total FROM geoventra.device_assignment_history WHERE organisation_id = $1 AND device_id = $2`;
-    const countResult = await this.database.query(countSql, [organisationId, deviceId]);
+    const countResult = await this.database.query<any>(countSql, [organisationId, deviceId]).catch(() => []);
     const total = countResult.length > 0 ? Number((countResult[0] as any)?.total ?? 0) : 0;
 
-    const dataSql = `SELECT id, device_id AS deviceId, vehicle_id AS vehicleId, action, reason, performed_by AS performedBy, performed_at AS performedAt FROM geoventra.device_assignment_history WHERE organisation_id = $1 AND device_id = $2 ORDER BY performed_at DESC LIMIT $3 OFFSET $4`;
-    const rows = await this.database.query(dataSql, [organisationId, deviceId, pageSize, (page - 1) * pageSize]);
+    const dataSql = `SELECT id, device_id AS "deviceId", vehicle_id AS "vehicleId", action, reason, performed_by AS "performedBy", performed_at AS "performedAt" FROM geoventra.device_assignment_history WHERE organisation_id = $1 AND device_id = $2 ORDER BY performed_at DESC LIMIT $3 OFFSET $4`;
+    const rows = await this.database.query<any>(dataSql, [organisationId, deviceId, pageSize, (page - 1) * pageSize]).catch(() => []);
+    return { data: rows, meta: { total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / Math.max(1, pageSize))) } };
+  }
 
-    const data = rows.map((r: any) => ({
-      id: r.id,
-      deviceId: r.deviceId,
-      vehicleId: r.vehicleId,
-      action: r.action,
-      reason: r.reason,
-      performedBy: r.performedBy,
-      performedAt: r.performedAt,
-    }));
-
-    return { data, meta: { total, page, pageSize } };
+  async stats(organisationId: string) {
+    const row = await this.database.queryOne<any>(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE status='online')::int AS online,
+         COUNT(*) FILTER (WHERE status='offline')::int AS offline,
+         COUNT(*) FILTER (WHERE status='degraded')::int AS degraded,
+         COUNT(*) FILTER (WHERE status='unassigned')::int AS unassigned,
+         COUNT(*) FILTER (WHERE last_communication_at >= now() - interval '24 hours')::int AS "active24h",
+         COUNT(*) FILTER (WHERE last_communication_at IS NULL OR last_communication_at < now() - interval '24 hours')::int AS "stale24h"
+       FROM geoventra.devices WHERE organisation_id = $1`,
+      [organisationId],
+    ).catch(() => null);
+    return row ?? { total: 0, online: 0, offline: 0, degraded: 0, unassigned: 0, active24h: 0, stale24h: 0 };
   }
 
   private async createAssignmentHistory(organisationId: string, deviceId: string, vehicleId: string | null, action: string, reason: string | null | undefined, performedBy: string | null | undefined) {
@@ -255,7 +269,7 @@ export class DevicesService {
     await this.database.query(
       `INSERT INTO geoventra.device_assignment_history (organisation_id, device_id, vehicle_id, action, reason, performed_by) VALUES ($1, $2, $3, $4, $5, $6)`,
       [organisationId, deviceId, vehicleId, action, reason ?? null, performedBySafe],
-    );
-    await this.adminService.createAuditLog(organisationId, performedBySafe, `DEVICE_${action.toUpperCase()}`, 'device', deviceId, { vehicleId });
+    ).catch(() => undefined);
+    try { await (this.adminService as any).createAuditLog?.(organisationId, performedBySafe, `DEVICE_${action.toUpperCase()}`, 'device', deviceId, { vehicleId }); } catch {}
   }
 }

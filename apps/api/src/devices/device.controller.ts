@@ -15,8 +15,9 @@ const deviceQuerySchema = z.object({
   deviceType: z.string().max(50).optional(),
   category: z.string().max(50).optional(),
   status: z.enum(['online', 'offline', 'degraded', 'unassigned']).optional(),
-  page: z.number().min(1).default(1),
-  pageSize: z.number().min(1).max(100).default(50),
+  activeFlag: z.union([z.boolean(), z.string()]).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 const createDeviceSchema = z.object({
@@ -41,6 +42,8 @@ const createDeviceSchema = z.object({
 
 const updateDeviceSchema = z.object({
   status: z.enum(['online', 'offline', 'degraded', 'unassigned']).optional(),
+  activeFlag: z.boolean().optional(),
+  active_flag: z.boolean().optional(),
   model: z.string().min(1).max(200).optional(),
   firmwareVersion: z.string().optional(),
   provider: z.string().min(1).max(200).optional(),
@@ -63,10 +66,17 @@ export class DevicesController {
   @UseGuards(JwtAuthGuard)
   @RequirePermissions('devices.read')
   async list(@Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
-    const parsed = deviceQuerySchema.parse(query);
+    const parsed = deviceQuerySchema.parse(query ?? {});
     return this.devicesService.listDevices(user.organisationId, parsed);
   }
 
+
+  @Get('stats/summary')
+  @UseGuards(JwtAuthGuard)
+  @RequirePermissions('devices.read')
+  async stats(@CurrentUser() user: AuthenticatedUser) {
+    return this.devicesService.stats(user.organisationId);
+  }
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @RequirePermissions('devices.read')
@@ -139,7 +149,7 @@ export class DevicesController {
   @UseGuards(JwtAuthGuard)
   @RequirePermissions('devices.read')
   async history(@Param('id') id: string, @Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
-    const parsed = z.object({ page: z.number().min(1).default(1), pageSize: z.number().min(1).max(100).default(50) }).parse(query);
+    const parsed = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(50) }).parse(query ?? {});
     return this.devicesService.getAssignmentHistory(user.organisationId, id, parsed);
   }
 }

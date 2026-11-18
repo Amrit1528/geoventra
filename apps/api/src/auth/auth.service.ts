@@ -145,6 +145,7 @@ export class AuthService {
       perms: permissions,
     };
     const accessToken = await this.jwtService.signAsync(payload, {
+      secret: process.env.JWT_ACCESS_SECRET ?? 'geoventra-development-access-secret',
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
     });
 

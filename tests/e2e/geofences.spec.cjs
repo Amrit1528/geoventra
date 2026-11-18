@@ -14,7 +14,7 @@ async function signIn(page, credentials) {
 
 async function adminToken(request) {
   const res = await request.post('http://localhost:4100/api/v1/auth/login', {
-    body: { email: ADMIN.email, password: ADMIN.password },
+    data: { email: ADMIN.email, password: ADMIN.password },
   });
   return (await res.json()).accessToken;
 }

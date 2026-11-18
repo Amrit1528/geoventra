@@ -138,6 +138,20 @@ export class FuelController {
     return this.fuelService.detectFuelDrain(user.organisationId, vehicleId, rangeSchema.parse(query));
   }
 
+  @Post('vehicles/:vehicleId/anomalies/:anomalyId/acknowledge')
+  @RequirePermissions('alerts.write')
+  @HttpCode(HttpStatus.OK)
+  acknowledgeAnomaly(@Param('vehicleId') vehicleId: string, @Param('anomalyId') anomalyId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.fuelService.acknowledgeAnomaly(user.organisationId, vehicleId, anomalyId);
+  }
+
+  @Post('vehicles/:vehicleId/anomalies/:anomalyId/confirm')
+  @RequirePermissions('alerts.write')
+  @HttpCode(HttpStatus.OK)
+  confirmAnomaly(@Param('vehicleId') vehicleId: string, @Param('anomalyId') anomalyId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.fuelService.confirmAnomaly(user.organisationId, vehicleId, anomalyId);
+  }
+
   // Fuel expenses
   @Get('vehicles/:vehicleId/expenses')
   @RequirePermissions('devices.read')

@@ -8,7 +8,8 @@
  *    TrackingModule       — telemetry ingestion and live positions
  */
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule } from './common/auth/jwt.module.js';
+import { JwtService } from '@nestjs/jwt';
 import { InfrastructureModule } from './common/infrastructure/infrastructure.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
@@ -32,15 +33,12 @@ import { VehiclesModule } from './vehicles/vehicles.module.js';
 import { DriversModule } from './drivers/drivers.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { ReportsModule } from './reports/reports.module.js';
+import { Pt06Module } from './pt06/pt06.module.js';
 import { AdminModule } from './admin/admin.module.js';
 
 @Module({
   imports: [
-    JwtModule.register({
-      global: true,
-      secret: process.env.JWT_ACCESS_SECRET ?? 'geoventra-development-access-secret',
-      signOptions: { expiresIn: process.env.JWT_ACCESS_TTL ?? '15m' },
-    }),
+    JwtModule,
     InfrastructureModule,
     AuthModule,
     GeofencesModule,
@@ -65,6 +63,7 @@ import { AdminModule } from './admin/admin.module.js';
     DriversModule,
     MaintenanceModule,
     ReportsModule,
+    Pt06Module,
   ],
 })
 export class AppModule {}

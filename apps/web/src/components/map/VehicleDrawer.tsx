@@ -138,7 +138,9 @@ export function VehicleDrawer({ vehicle, onClose, className }: VehicleDrawerProp
           <CardContent className="py-3">
             <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Position</p>
             <p className="mt-1 font-mono text-[11px] text-[var(--text-secondary)]">
-              {vehicle.latitude.toFixed(6)}, {vehicle.longitude.toFixed(6)}
+              {vehicle.latitude !== null && vehicle.longitude !== null
+                ? `${vehicle.latitude.toFixed(6)}, ${vehicle.longitude.toFixed(6)}`
+                : 'No GPS fix'}
             </p>
           </CardContent>
         </Card>

@@ -64,7 +64,7 @@ export function loadSimulatorConfig(): SimulatorConfig {
       1_000,
       60_000,
     ),
-    port: clamp(toInt(process.env.SIMULATOR_PORT ?? process.env.PORT, DEFAULTS.port), 1, 65_535),
+    port: clamp(toInt(process.env.SIMULATOR_PORT, DEFAULTS.port), 1, 65_535),
     autostart: (process.env.SIMULATOR_AUTOSTART ?? 'true').trim().toLowerCase() !== 'false',
   };
 

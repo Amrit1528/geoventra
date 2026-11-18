@@ -294,7 +294,7 @@ export class TrackingService {
               v.registration_number                AS registration_number,
               v.name                               AS name,
               v.category                           AS category,
-              v.status                             AS status,
+              COALESCE(s.status, v.status)          AS status,
               s.latitude                           AS latitude,
               s.longitude                          AS longitude,
               s.speed_kph                          AS speed_kph,
@@ -354,7 +354,7 @@ export class TrackingService {
               v.registration_number                AS registration_number,
               v.name                               AS name,
               v.category                           AS category,
-              v.status                             AS status,
+              COALESCE(s.status, v.status)          AS status,
               s.latitude                           AS latitude,
               s.longitude                          AS longitude,
               s.speed_kph                          AS speed_kph,
@@ -398,6 +398,9 @@ export class TrackingService {
 
   /** The recent trail for a single vehicle. */
   async trail(organisationId: string, vehicleId: string, limit: number): Promise<TrackPoint[]> {
+    if (!isValidUuid(vehicleId)) {
+      throw new BadRequestException(`Vehicle ${vehicleId} is not a valid identifier`);
+    }
     const vehicle = await this.database.queryOne<{ id: string }>(
       'SELECT id FROM geoventra.vehicles WHERE organisation_id = $1 AND id = $2',
       [organisationId, vehicleId],
@@ -441,6 +444,9 @@ export class TrackingService {
    * belong to the caller's organisation resolves to `null` and is reported as not found.
    */
   async getVehicleDetail(organisationId: string, vehicleId: string): Promise<VehicleTrackingDetail> {
+    if (!isValidUuid(vehicleId)) {
+      throw new BadRequestException(`Vehicle ${vehicleId} is not a valid identifier`);
+    }
     const vehicle = await this.database.queryOne<{ id: string; registration_number: string; name: string; category: string; status: string }>(
       `SELECT id, registration_number, name, category, status
          FROM geoventra.vehicles
@@ -544,7 +550,7 @@ export class TrackingService {
       registrationNumber: vehicle.registration_number,
       name: vehicle.name,
       category: vehicle.category as VehicleTrackingDetail['category'],
-      status: vehicle.status as VehicleTrackingDetail['status'],
+      status: (live?.status ? live.status : vehicle.status) as VehicleTrackingDetail['status'],
       latitude: live?.latitude ?? null,
       longitude: live?.longitude ?? null,
       speedKph: live && live.speed_kph !== null ? Number(live.speed_kph) : null,
@@ -572,6 +578,16 @@ export class TrackingService {
    * de-duplicated by event id (device re-deliveries must not corrupt the timeline).
    */
   async history(organisationId: string, vehicleId: string, query: VehicleHistoryQuery): Promise<VehicleHistoryPage> {
+    if (!isValidUuid(vehicleId)) {
+      throw new BadRequestException(`Vehicle ${vehicleId} is not a valid identifier`);
+    }
+    const vehicle = await this.database.queryOne<{ id: string }>(
+      'SELECT id FROM geoventra.vehicles WHERE organisation_id = $1 AND id = $2',
+      [organisationId, vehicleId],
+    );
+    if (!vehicle) {
+      throw new NotFoundException(`Vehicle ${vehicleId} was not found`);
+    }
     const { from, to, status, ignition, page, pageSize } = query;
 
     const conditions: string[] = ['g.organisation_id = $1', 'g.vehicle_id = $2'];
@@ -653,6 +669,16 @@ export class TrackingService {
 
   /** Calculated tracking statistics for a vehicle inside a time window. */
   async historyStats(organisationId: string, vehicleId: string, query: VehicleHistoryQuery): Promise<VehicleTrackingStats> {
+    if (!isValidUuid(vehicleId)) {
+      throw new BadRequestException(`Vehicle ${vehicleId} is not a valid identifier`);
+    }
+    const vehicle = await this.database.queryOne<{ id: string }>(
+      'SELECT id FROM geoventra.vehicles WHERE organisation_id = $1 AND id = $2',
+      [organisationId, vehicleId],
+    );
+    if (!vehicle) {
+      throw new NotFoundException(`Vehicle ${vehicleId} was not found`);
+    }
     const { from, to } = query;
 
     const conditions = ['g.organisation_id = $1', 'g.vehicle_id = $2'];
@@ -695,6 +721,16 @@ export class TrackingService {
 
   /** CSV export of a vehicle's tracking history, honouring the same filters. */
   async exportCsv(organisationId: string, vehicleId: string, query: VehicleHistoryQuery): Promise<string> {
+    if (!isValidUuid(vehicleId)) {
+      throw new BadRequestException(`Vehicle ${vehicleId} is not a valid identifier`);
+    }
+    const vehicle = await this.database.queryOne<{ id: string }>(
+      'SELECT id FROM geoventra.vehicles WHERE organisation_id = $1 AND id = $2',
+      [organisationId, vehicleId],
+    );
+    if (!vehicle) {
+      throw new NotFoundException(`Vehicle ${vehicleId} was not found`);
+    }
     const { from, to, status, ignition } = query;
 
     const conditions = ['g.organisation_id = $1', 'g.vehicle_id = $2'];
@@ -764,6 +800,11 @@ export class TrackingService {
   }
 }
 
+/** Validate a UUID string. */
+export function isValidUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 /** Derive the vehicle status from the latest sample. */
 export function deriveStatus(speedKph: number, ignition: boolean): string {
   if (!ignition) return 'stopped';
@@ -797,7 +838,12 @@ interface LiveStatusRow {
   last_recorded_at: Date | null;
 }
 
-/** Map a live-status row onto the shared LivePosition contract. */
+/** Map a live-status row onto the shared LivePosition contract.
+ *
+ * Vehicles without a valid GPS fix are reported as `offline` with their last-known
+ * coordinates preserved, and `latitude`/`longitude` set to null when no fix exists.
+ * A fix is considered stale when it is older than 15 minutes.
+ */
 function mapLiveStatusRow(row: LiveStatusRow, now: number): LivePosition {
   // Vehicles without a live status yet are shown as offline with zeroed readings
   // rather than being hidden or crashing the snapshot.
@@ -807,14 +853,26 @@ function mapLiveStatusRow(row: LiveStatusRow, now: number): LivePosition {
     ? Math.max(0, Math.round((now - lastRecordedAt.getTime()) / 1000))
     : Number.MAX_SAFE_INTEGER;
 
+  // A GPS fix is stale after 15 minutes. When the fix is missing or stale, treat
+  // the vehicle as offline and report null coordinates (the last-known fix is kept
+  // in the snapshot for display purposes only).
+  const gpsAgeMs = lastRecordedAt ? now - lastRecordedAt.getTime() : Number.MAX_SAFE_INTEGER;
+  const isOffline = gpsAgeMs >= 15 * 60 * 1000 || lastRecordedAt === null;
+  // row.status is typed as string from the database; narrow to the known set.
+  const status: LivePosition['status'] = isOffline ? 'offline' : row.status as LivePosition['status'];
+  const latitude = row.latitude;
+  const longitude = row.longitude;
+
   return {
     vehicleId: row.vehicle_id,
     registrationNumber: row.registration_number,
     name: row.name,
     category: row.category as LivePosition['category'],
-    status: row.status as LivePosition['status'],
-    latitude: row.latitude ?? 0,
-    longitude: row.longitude ?? 0,
+    status,
+    // latitude: row.latitude ?? 0,  // ← Null when no fix present
+    latitude: row.latitude ?? null,
+    // longitude: row.longitude ?? 0, // ← Null when no fix present
+    longitude: row.longitude ?? null,
     speedKph: Number(row.speed_kph ?? 0),
     heading: Number(row.heading ?? 0),
     ignition: row.ignition ?? false,
@@ -887,13 +945,15 @@ const MOVING_SPEED_THRESHOLD_KPH = 2;
 
 /** Map a raw `gps_positions` row onto the canonical `VehicleHistoryPoint` contract. */
 function toVehicleHistoryPoint(row: HistoryRow): VehicleHistoryPoint {
+  const speedKph = Number(row.speed_kph ?? 0);
   return {
     vehicleId: row.vehicle_id,
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
-    speedKph: Number(row.speed_kph ?? 0),
+    speedKph,
     heading: Number(row.heading ?? 0),
     ignition: row.ignition,
+    status: deriveStatus(speedKph, row.ignition) as 'moving' | 'idle' | 'stopped',
     recordedAt: row.recorded_at.toISOString(),
     receivedAt: row.received_at.toISOString(),
     accuracyM: row.accuracy_m === null ? null : Number(row.accuracy_m),
@@ -1059,5 +1119,6 @@ export function computeVehicleTrackingStats(
     idleSeconds,
     stoppedSeconds,
     gpsDataGaps: gaps,
+    gapCount: gaps.length,
   };
 }
