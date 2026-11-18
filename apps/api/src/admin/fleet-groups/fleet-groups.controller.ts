@@ -12,8 +12,8 @@ import { z } from 'zod';
 
 const groupQuerySchema = z.object({
   search: z.string().max(100).optional(),
-  page: z.number().min(1).default(1),
-  pageSize: z.number().min(1).max(100).default(50),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
 });
 
 const createGroupSchema = z.object({
@@ -37,7 +37,7 @@ export class FleetGroupsController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.read')
+  @RequirePermissions('vehicles.read')
   async list(@Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = groupQuerySchema.parse(query);
     return this.fleetGroupsService.listGroups(user.organisationId, parsed);
@@ -45,7 +45,7 @@ export class FleetGroupsController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.read')
+  @RequirePermissions('vehicles.read')
   async detail(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     const data = await this.fleetGroupsService.getGroup(user.organisationId, id);
     if (!data) throw new Error('Fleet group not found');
@@ -54,7 +54,7 @@ export class FleetGroupsController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.write')
+  @RequirePermissions('vehicles.write')
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = createGroupSchema.parse(body);
@@ -64,7 +64,7 @@ export class FleetGroupsController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.write')
+  @RequirePermissions('vehicles.write')
   async update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = updateGroupSchema.parse(body);
     const data = await this.fleetGroupsService.updateGroup(user.organisationId, id, parsed);
@@ -73,7 +73,7 @@ export class FleetGroupsController {
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.write')
+  @RequirePermissions('vehicles.write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     await this.fleetGroupsService.deleteGroup(user.organisationId, id);

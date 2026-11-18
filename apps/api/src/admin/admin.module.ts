@@ -19,6 +19,7 @@ import { NotificationsService } from './notifications/notifications.service.js';
 import { PreferencesController } from './preferences/preferences.controller.js';
 import { PreferencesService } from './preferences/preferences.service.js';
 import { DatabaseService } from '../common/infrastructure/database.service.js';
+import { PasswordService } from '../common/auth/password.service.js';
 
 @Module({
   controllers: [
@@ -40,6 +41,7 @@ import { DatabaseService } from '../common/infrastructure/database.service.js';
     NotificationsService,
     PreferencesService,
     DatabaseService,
+    PasswordService,
   ],
   exports: [AdminService],
 })

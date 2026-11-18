@@ -15,8 +15,11 @@ export function createQueryClient(): QueryClient {
       queries: {
         staleTime: 30_000,
         gcTime: 5 * 60_000,
-        refetchOnWindowFocus: false,
+        refetchInterval: 30_000,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
         refetchOnReconnect: true,
+        refetchOnMount: 'always',
         retry: (failureCount, error) => {
           if (error instanceof ApiError) {
             // Never retry client errors; only transient server failures.

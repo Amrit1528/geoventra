@@ -3,15 +3,16 @@
  */
 
 import { Injectable } from '@nestjs/common';
-import { randomBytes } from 'crypto';
 import { DatabaseService } from '../../common/infrastructure/database.service.js';
 import { AdminService } from '../admin.service.js';
+import { PasswordService } from '../../common/auth/password.service.js';
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly database: DatabaseService,
     private readonly adminService: AdminService,
+    private readonly passwordService: PasswordService,
   ) {}
 
   async listUsers(organisationId: string, query: {
@@ -22,7 +23,7 @@ export class UsersService {
     pageSize: number;
   }) {
     const { search, role, status, page, pageSize } = query;
-    const where: string[] = ['organisation_id = $1'];
+    const where: string[] = ['u.organisation_id = $1', 'u.deleted_at IS NULL'];
     const params: any[] = [organisationId];
     let i = 2;
 
@@ -37,11 +38,11 @@ export class UsersService {
       where.push(`status = $${i}`); params.push(status); i++;
     }
 
-    const countSql = `SELECT COUNT(*)::int AS total FROM geoventra.users WHERE ${where.join(' AND ')}`;
+    const countSql = `SELECT COUNT(*)::int AS total FROM geoventra.users u WHERE ${where.join(' AND ')}`;
     const countResult = await this.database.query(countSql, params);
     const total = (countResult[0] as any)?.total ?? 0;
 
-    const dataSql = `SELECT id, name, email, phone, role_id, role_name, status, last_login_at, created_at FROM geoventra.users WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
+    const dataSql = `SELECT u.id, u.name, u.email, u.phone, u.role_id, r.name AS role_name, u.status, u.last_login_at, u.created_at FROM geoventra.users u LEFT JOIN geoventra.roles r ON r.id = u.role_id WHERE ${where.join(' AND ')} ORDER BY u.created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
     const rows = await this.database.query(dataSql, params);
@@ -63,7 +64,7 @@ export class UsersService {
     status?: string;
     fleetGroupIds?: string[];
   }) {
-    const hash = randomBytes(32).toString('hex');
+    const hash = await this.passwordService.hash(input.password);
     const sql = `INSERT INTO geoventra.users (organisation_id, name, email, password_hash, role_id, phone, status, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
                  RETURNING id, name, email, phone, role_id, status, created_at, updated_at`;
@@ -98,7 +99,7 @@ export class UsersService {
     if (input.roleId !== undefined) set('role_id', input.roleId);
     if (input.status !== undefined) set('status', input.status);
     if (input.password !== undefined) {
-      const hash = randomBytes(32).toString('hex');
+      const hash = await this.passwordService.hash(input.password);
       set('password_hash', hash);
     }
 
@@ -119,7 +120,7 @@ export class UsersService {
   }
 
   async changePassword(organisationId: string, userId: string, password: string): Promise<void> {
-    const hash = randomBytes(32).toString('hex');
+    const hash = await this.passwordService.hash(password);
     const sql = `UPDATE geoventra.users SET password_hash = $3, updated_at = now() WHERE organisation_id = $1 AND id = $2`;
     await this.database.query(sql, [organisationId, userId, hash]);
   }

@@ -71,9 +71,8 @@ export class RolesService {
 
     if (permissionCodes.length === 0) return;
 
-    const values = permissionCodes.map((_, i) => `($${i + 2})`).join(',');
-    const sqlInsert = `INSERT INTO geoventra.role_permissions (role_id, permission_id) SELECT $1, id FROM geoventra.permissions WHERE id = ANY(ARRAY[${values}])`;
-    const params = [roleId, ...permissionCodes];
-    await this.database.query(sqlInsert, params);
+    const sqlInsert = `INSERT INTO geoventra.role_permissions (role_id, permission_id)
+      SELECT $1, id FROM geoventra.permissions WHERE code = ANY($2::text[])`;
+    await this.database.query(sqlInsert, [roleId, permissionCodes]);
   }
 }

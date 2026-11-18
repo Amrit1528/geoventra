@@ -115,10 +115,11 @@ export class EngineDiagnosticsRepository {
               v.category                              AS category,
               v.status                                AS status,
               d.device_id                             AS device_id,
-              d.status                                AS device_status
+              d.status                                AS device_status,
+              d.active_flag                           AS device_active
          FROM geoventra.vehicles v
          LEFT JOIN LATERAL (
-              SELECT dev.device_id, dev.status
+              SELECT dev.device_id, dev.status, dev.active_flag
                 FROM geoventra.device_assignments da
                 JOIN geoventra.devices dev ON dev.id = da.device_id
                WHERE da.vehicle_id = v.id
@@ -127,6 +128,7 @@ export class EngineDiagnosticsRepository {
                LIMIT 1
          ) d ON TRUE
         WHERE v.organisation_id = $1
+          AND (d.device_id IS NULL OR d.active_flag = TRUE)
           ${filter}
         ORDER BY v.registration_number`,
       params,

@@ -12,8 +12,8 @@ import { z } from 'zod';
 
 const roleQuerySchema = z.object({
   search: z.string().max(100).optional(),
-  page: z.number().min(1).default(1),
-  pageSize: z.number().min(1).max(100).default(50),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
 });
 
 const createRoleSchema = z.object({

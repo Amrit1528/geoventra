@@ -14,8 +14,8 @@ const userQuerySchema = z.object({
   search: z.string().max(100).optional(),
   role: z.string().uuid().optional(),
   status: z.enum(['active', 'invited', 'suspended']).optional(),
-  page: z.number().min(1).default(1),
-  pageSize: z.number().min(1).max(100).default(50),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
 });
 
 const createUserSchema = z.object({

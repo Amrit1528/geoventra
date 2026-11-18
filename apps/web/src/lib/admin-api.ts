@@ -9,3 +9,6 @@ export function fetchAuditLogs(query: any = {}) { return apiRequest<any>('/admin
 export function fetchApiKeys(query: any = {}) { return apiRequest<any>('/admin/api-keys', { query }); }
 export function createApiKey(body: any) { return apiRequest<any>('/admin/api-keys', { method: 'POST', body }); }
 export function fetchFleetGroups() { return apiRequest<any>('/admin/fleet-groups'); }
+export function createFleetGroup(body: any) { return apiRequest<any>('/admin/fleet-groups', { method: 'POST', body }); }
+export function updateFleetGroup(id: string, body: any) { return apiRequest<any>(`/admin/fleet-groups/${id}`, { method: 'PATCH', body }); }
+export function deleteFleetGroup(id: string) { return apiRequest<any>(`/admin/fleet-groups/${id}`, { method: 'DELETE' }); }

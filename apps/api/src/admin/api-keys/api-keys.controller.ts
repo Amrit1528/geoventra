@@ -12,8 +12,8 @@ import { z } from 'zod';
 
 const keyQuerySchema = z.object({
   search: z.string().max(100).optional(),
-  page: z.number().min(1).default(1),
-  pageSize: z.number().min(1).max(100).default(50),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
 });
 
 const createKeySchema = z.object({
@@ -28,7 +28,7 @@ export class ApiKeysController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.read')
+  @RequirePermissions('users.read')
   async list(@Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = keyQuerySchema.parse(query);
     return this.apiKeysService.listKeys(user.organisationId, parsed);
@@ -36,7 +36,7 @@ export class ApiKeysController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.read')
+  @RequirePermissions('users.read')
   async detail(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     const data = await this.apiKeysService.getKey(user.organisationId, id);
     if (!data) throw new Error('API key not found');
@@ -45,7 +45,7 @@ export class ApiKeysController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.write')
+  @RequirePermissions('users.write')
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = createKeySchema.parse(body);
@@ -55,7 +55,7 @@ export class ApiKeysController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.write')
+  @RequirePermissions('users.write')
   async update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = z.object({
       name: z.string().min(1).max(100).optional(),
@@ -73,7 +73,7 @@ export class ApiKeysController {
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
-  @RequirePermissions('settings.write')
+  @RequirePermissions('users.write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     await this.apiKeysService.revokeKey(user.organisationId, id);

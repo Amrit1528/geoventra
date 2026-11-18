@@ -16,8 +16,8 @@ const logQuerySchema = z.object({
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   search: z.string().max(100).optional(),
-  page: z.number().min(1).default(1),
-  pageSize: z.number().min(1).max(100).default(50),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
 });
 
 @Controller('admin/audit-logs')

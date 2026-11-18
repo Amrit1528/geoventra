@@ -51,7 +51,7 @@ export class ApiKeysService {
     const keyHash = await this.hashKey(rawKey);
 
     const sql = `INSERT INTO geoventra.api_keys (organisation_id, name, prefix, key_hash, scopes, created_at) VALUES ($1, $2, $3, $4, $5, now()) RETURNING id, name, prefix, scopes, last_used_at, created_at`;
-    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, prefix, keyHash, JSON.stringify(input.scopes)]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, prefix, keyHash, input.scopes ?? []]);
 
     if (row) {
       await this.adminService.createAuditLog(organisationId, null, 'CREATE_API_KEY', 'api_key', row.id, { name: input.name });
@@ -61,7 +61,7 @@ export class ApiKeysService {
 
   async updateKey(organisationId: string, id: string, input: { name?: string; scopes?: string[]; revoke?: boolean }) {
     const sql = `UPDATE geoventra.api_keys SET name = COALESCE($2, name), scopes = COALESCE($3, scopes), updated_at = now() WHERE organisation_id = $1 AND id = $4 AND revoked_at IS NULL RETURNING id, name, prefix, scopes, last_used_at, created_at`;
-    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, input.scopes ? JSON.stringify(input.scopes) : null, id]);
+    const row = await this.database.queryOne<any>(sql, [organisationId, input.name, input.scopes ?? null, id]);
     if (!row) throw new Error('API key not found or revoked');
     return row;
   }
