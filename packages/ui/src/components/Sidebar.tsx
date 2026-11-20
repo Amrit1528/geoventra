@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   CircleGauge,
   UserCog,
+  Brain,
 } from 'lucide-react';
 import { cn } from './Component';
 
@@ -57,6 +58,7 @@ export const SIDEBAR_NAV_ITEMS: readonly SidebarNavItem[] = [
   { label: 'TPMS & Tyre Health', href: '/tpms', icon: CircleGauge, group: 'Vehicle Intelligence' },
   { label: 'Fuel Management', href: '/fuel', icon: Fuel, group: 'Vehicle Intelligence' },
   { label: 'Maintenance', href: '/maintenance', icon: Wrench, group: 'Vehicle Intelligence' },
+  { label: 'AI Intelligence', href: '/intelligence', icon: Brain, group: 'Vehicle Intelligence' },
 
   { label: 'Reports & Analytics', href: '/reports', icon: BarChart3, group: 'Business' },
   { label: 'Customers & Users', href: '/users', icon: UserCog, group: 'Business' },

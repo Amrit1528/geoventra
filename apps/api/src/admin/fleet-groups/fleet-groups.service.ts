@@ -15,7 +15,7 @@ export class FleetGroupsService {
 
   async listGroups(organisationId: string, query: { page: number; pageSize: number; search?: string }) {
     const { page, pageSize, search } = query;
-    const where: string[] = ['g.organisation_id = $1'];
+    const where: string[] = ['g.organisation_id = $1', 'g.is_archived = false'];
     const params: any[] = [organisationId];
     let i = 2;
 

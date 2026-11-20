@@ -39,6 +39,7 @@ const BREADCRUMB_LABELS: Record<string, string> = {
   engine: 'Engine Health',
   tpms: 'TPMS & Tyre Health',
   maintenance: 'Maintenance',
+  intelligence: 'AI Intelligence',
   reports: 'Reports & Analytics',
   users: 'Customers & Users',
   admin: 'Administration',
