@@ -62,7 +62,7 @@ async function bootstrap(): Promise<void> {
   });
 
   const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-  const max = Number(process.env.RATE_LIMIT_MAX ?? 300);
+  const max = Number(process.env.RATE_LIMIT_MAX ?? 5000);
   if (max > 0) app.use(createRateLimiter(windowMs, max));
 
   app.setGlobalPrefix('api/v1', {

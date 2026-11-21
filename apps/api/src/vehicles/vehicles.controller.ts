@@ -19,6 +19,12 @@ export class VehiclesController {
     return this.vehiclesService.getById(req.user.organisationId, id);
   }
 
+  @Get(':id/full-profile')
+  @RequirePermissions('vehicles.read')
+  getFullProfile(@Req() req: any, @Param('id') id: string) {
+    return this.vehiclesService.getFullProfile(req.user.organisationId, id);
+  }
+
   @Post()
   create(@Req() req: any, @Body() body: any) {
     return this.vehiclesService.create(req.user.organisationId, body ?? {});

@@ -3,6 +3,7 @@
 import { type ReactElement, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import { Car, Gauge, MapPin, Plus, Search, Trash2, Power, PowerOff } from 'lucide-react';
 import { Badge, Button, Card, CardContent, EmptyState, LoadingPanel, PageLayout, Select } from '@geoventra/ui';
 import { createVehicle, deleteVehicle, fetchVehicles, setVehicleStatus } from '@/lib/vehicles-api';
@@ -19,7 +20,8 @@ const STATUS_OPTIONS = [
 export default function VehiclesPage(): ReactElement {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | VehicleStatus>('all');
+  const searchParams = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState<'all' | VehicleStatus>((searchParams.get('status') as VehicleStatus) || 'all');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);

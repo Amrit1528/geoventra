@@ -114,6 +114,39 @@ export class VehiclesService {
     };
   }
 
+  async getFullProfile(organisationId: string, id: string) {
+    const vehicle = await this.getById(organisationId, id);
+    const driver = vehicle.assignedDriverId ? await this.database.queryOne<any>(
+      `SELECT id, name, phone, email, license_number, license_expiry, status, safety_score FROM geoventra.drivers WHERE organisation_id=$1 AND id=$2`,
+      [organisationId, vehicle.assignedDriverId],
+    ) : null;
+    const device = await this.database.queryOne<any>(
+      `SELECT d.id, d.device_id, d.device_type, d.model, d.status, d.firmware_version, d.last_communication_at,
+              d.serial_number
+         FROM geoventra.device_assignments da
+         JOIN geoventra.devices d ON d.id = da.device_id
+        WHERE da.organisation_id=$1 AND da.vehicle_id=$2 AND da.unassigned_at IS NULL
+        ORDER BY da.assigned_at DESC
+        LIMIT 1`,
+      [organisationId, id],
+    );
+    const insurance = await this.database.query<any>(
+      `SELECT id, name, document_type, document_number, issued_at, expires_at, file_url, created_at
+         FROM geoventra.vehicle_documents WHERE organisation_id=$1 AND vehicle_id=$2 ORDER BY expires_at DESC NULLS LAST`,
+      [organisationId, id],
+    );
+    const telemetry = await this.database.queryOne<any>(
+      `SELECT speed_kph, ignition, latitude, longitude, recorded_at, battery_voltage, odometer_km
+         FROM geoventra.gps_positions WHERE organisation_id=$1 AND vehicle_id=$2 ORDER BY recorded_at DESC LIMIT 1`,
+      [organisationId, id],
+    );
+    const trips = await this.database.queryOne<any>(
+      `SELECT COUNT(*)::int AS trips, COALESCE(SUM(distance_km),0)::float AS "distanceKm" FROM geoventra.trips WHERE organisation_id=$1 AND vehicle_id=$2`,
+      [organisationId, id],
+    );
+    return { vehicle, driver, device, insurance, latestTelemetry: telemetry, tripsSummary: trips, generatedAt: new Date().toISOString() };
+  }
+
   async create(organisationId: string, input: any): Promise<VehicleSummary> {
     const row = await this.database.queryOne<any>(
       `INSERT INTO geoventra.vehicles (organisation_id, registration_number, name, category, manufacturer, model, fuel_type, year, vin, city, group_id, assigned_driver_id, status, odometer_km, engine_hours, maintenance_status, insurance_expiry, registration_expiry, notes, active_flag)

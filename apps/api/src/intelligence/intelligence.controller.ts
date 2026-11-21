@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Patch, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { IntelligenceService } from './intelligence.service.js';
+import { z } from 'zod';
 import { JwtAuthGuard } from '../common/auth/jwt-auth.guard.js';
 import { RequirePermissions } from '../common/auth/permissions.decorator.js';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user.interface.js';
@@ -16,6 +17,12 @@ export class IntelligenceController {
   @RequirePermissions('vehicles.read')
   overview(@Query() query: any, @CurrentUser() u: AuthenticatedUser) {
     return this.svc.overview(u.organisationId, this.q(query));
+  }
+
+  @Get('insights')
+  @RequirePermissions('vehicles.read')
+  insights(@CurrentUser() u: AuthenticatedUser) {
+    return this.svc.insights(u.organisationId);
   }
 
   @Get('fleet')
@@ -87,6 +94,13 @@ export class IntelligenceController {
   @Post('assistant')
   @RequirePermissions('vehicles.read')
   assistant(@Body() body: any, @CurrentUser() u: AuthenticatedUser) {
-    return this.svc.assistant(u.organisationId, body?.question ?? '', this.q(body ?? {}));
+    const parsed = z.object({
+      question: z.string().min(1).max(2000),
+      vehicleId: z.string().uuid().optional(),
+      selectedVehicleId: z.string().uuid().optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+    }).parse(body ?? {});
+    return this.svc.assistant(u.organisationId, parsed.question, { vehicleId: parsed.vehicleId ?? parsed.selectedVehicleId, from: parsed.from, to: parsed.to });
   }
 }

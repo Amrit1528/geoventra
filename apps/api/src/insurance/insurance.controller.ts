@@ -14,40 +14,27 @@ const docQuerySchema = z.object({
   search: z.string().max(100).optional(),
   vehicleId: z.string().uuid().optional(),
   documentType: z.string().max(50).optional(),
-  status: z.enum(['active', 'expired', 'upcoming', 'cancelled']).optional(),
-  page: z.number().min(1).default(1),
-  pageSize: z.number().min(1).max(100).default(50),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
 });
 
 const createDocSchema = z.object({
   vehicleId: z.string().uuid(),
+  name: z.string().min(1).max(200).optional(),
   documentType: z.string().min(1).max(50),
-  provider: z.string().max(200).optional(),
-  policyNumber: z.string().min(1).max(200),
   documentNumber: z.string().max(200).optional(),
-  startDate: z.string().date(),
-  expiryDate: z.string().date(),
-  premium: z.number().min(0).optional(),
-  declaredValue: z.number().min(0).optional(),
-  status: z.enum(['active', 'expired', 'upcoming', 'cancelled']).optional(),
-  coverageDetails: z.string().max(2000).optional(),
-  documentUrl: z.string().url().optional(),
-  lastReminderAt: z.string().datetime().optional(),
+  issuedAt: z.string().date().optional(),
+  expiresAt: z.string().date().optional(),
+  fileUrl: z.string().url().optional(),
 });
 
 const updateDocSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
   documentType: z.string().min(1).max(50).optional(),
-  provider: z.string().max(200).optional(),
-  policyNumber: z.string().min(1).max(200).optional(),
   documentNumber: z.string().max(200).optional(),
-  startDate: z.string().date().optional(),
-  expiryDate: z.string().date().optional(),
-  premium: z.number().min(0).optional(),
-  declaredValue: z.number().min(0).optional(),
-  status: z.enum(['active', 'expired', 'upcoming', 'cancelled']).optional(),
-  coverageDetails: z.string().max(2000).optional(),
-  documentUrl: z.string().url().optional(),
-  lastReminderAt: z.string().datetime().optional(),
+  issuedAt: z.string().date().optional(),
+  expiresAt: z.string().date().optional(),
+  fileUrl: z.string().url().optional(),
 });
 
 @Controller('insurance')
@@ -60,6 +47,13 @@ export class InsuranceController {
   async list(@Query() query: unknown, @CurrentUser() user: AuthenticatedUser) {
     const parsed = docQuerySchema.parse(query);
     return this.insuranceService.listDocuments(user.organisationId, parsed);
+  }
+
+  @Get('summary')
+  @UseGuards(JwtAuthGuard)
+  @RequirePermissions('devices.read')
+  async summary(@CurrentUser() user: AuthenticatedUser) {
+    return this.insuranceService.summary(user.organisationId);
   }
 
   @Get(':id')
@@ -91,7 +85,7 @@ export class InsuranceController {
   @RequirePermissions('devices.write')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    await this.insuranceService.updateDocument(user.organisationId, id, { status: 'cancelled' });
+    await this.insuranceService.deleteDocument(user.organisationId, id);
     return {};
   }
 }

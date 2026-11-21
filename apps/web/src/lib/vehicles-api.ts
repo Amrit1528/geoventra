@@ -38,6 +38,10 @@ export async function fetchVehicle(id: string): Promise<VehicleDetail> {
   return apiRequest<VehicleDetail>(`/vehicles/${id}`);
 }
 
+export async function fetchVehicleFullProfile(id: string): Promise<any> {
+  return apiRequest<any>(`/vehicles/${id}/full-profile`);
+}
+
 export async function createVehicle(input: {
   registrationNumber: string;
   name: string;

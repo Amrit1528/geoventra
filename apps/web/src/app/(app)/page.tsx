@@ -31,7 +31,12 @@ import {
   Button,
 } from '@geoventra/ui';
 import { FleetMap } from '@/components/map/FleetMap';
-import { fetchSnapshot, fetchGeofenceAlerts } from '@/lib/track-api';
+import { AiCopilot } from '@/components/ai/AiCopilot';
+import { VehicleDrawer } from '@/components/map/VehicleDrawer';
+import { fetchSnapshot, fetchGeofenceAlerts, fetchGeofenceEvents } from '@/lib/track-api';
+import { fetchInsuranceSummary } from '@/lib/insurance-api';
+import { fetchIntelligenceFleet, fetchIntelligenceFuel, fetchIntelligenceTrips, fetchIntelligenceDrivers, fetchIntelligenceMaintenance, fetchIntelligenceInsights } from '@/lib/intelligence-api';
+import { fetchDevices } from '@/lib/devices-api';
 import type { AlertSummary, LivePosition } from '@geoventra/contracts';
 
 type VehicleStatus = 'moving' | 'idle' | 'stopped' | 'offline';
@@ -65,6 +70,7 @@ export default function DashboardPage(): ReactElement {
   const [statusFilter, setStatusFilter] = useState<'all' | VehicleStatus>('all');
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [groupFilter, setGroupFilter] = useState<'all' | string>('all');
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
 
   const snapshot = useQuery({
     queryKey: ['fleet-snapshot'],
@@ -77,6 +83,21 @@ export default function DashboardPage(): ReactElement {
     queryFn: ({ signal }) => fetchGeofenceAlerts({ status: 'open', limit: 8 }, signal),
     refetchInterval: 30_000,
   });
+
+  const insuranceQuery = useQuery({
+    queryKey: ['dashboard-insurance-summary'],
+    queryFn: () => fetchInsuranceSummary(),
+    refetchInterval: 60_000,
+  });
+
+  const fleetQ = useQuery({ queryKey: ['dashboard-intelligence-fleet'], queryFn: () => fetchIntelligenceFleet(), refetchInterval: 30_000 });
+  const fuelQ = useQuery({ queryKey: ['dashboard-intelligence-fuel'], queryFn: () => fetchIntelligenceFuel(), refetchInterval: 60_000 });
+  const tripsQ = useQuery({ queryKey: ['dashboard-intelligence-trips'], queryFn: () => fetchIntelligenceTrips(), refetchInterval: 60_000 });
+  const driversQ = useQuery({ queryKey: ['dashboard-intelligence-drivers'], queryFn: () => fetchIntelligenceDrivers(), refetchInterval: 60_000 });
+  const maintQ = useQuery({ queryKey: ['dashboard-intelligence-maint'], queryFn: () => fetchIntelligenceMaintenance(), refetchInterval: 60_000 });
+  const insightsQ = useQuery({ queryKey: ['dashboard-intelligence-insights'], queryFn: () => fetchIntelligenceInsights(), refetchInterval: 60_000 });
+  const devicesQ = useQuery({ queryKey: ['dashboard-devices'], queryFn: () => fetchDevices({ page: 1, pageSize: 1 }), refetchInterval: 60_000 });
+  const geofenceEventsQ = useQuery({ queryKey: ['dashboard-geofence-events'], queryFn: () => fetchGeofenceEvents({ limit: 8 }), refetchInterval: 60_000 });
 
   const positions = snapshot.data?.positions ?? [];
   const geofences = snapshot.data?.geofences ?? [];
@@ -132,7 +153,7 @@ export default function DashboardPage(): ReactElement {
 
   return (
     <PageLayout
-      title="Executive Fleet Dashboard"
+      title="Dashboard"
       description="Operational command centre for live fleet visibility, incidents, utilization and vehicle intelligence."
       breadcrumb={[{ label: 'Geoventra', href: '/' }, { label: 'Dashboard' }]}
       actions={
@@ -151,12 +172,26 @@ export default function DashboardPage(): ReactElement {
       }
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <KpiCard label="Total vehicles" value={fleet.total} icon={<Truck size={16} />} />
-        <KpiCard label="Moving" value={fleet.moving} tone="positive" icon={<Navigation size={16} />} />
-        <KpiCard label="Idle" value={fleet.idle} icon={<Clock3 size={16} />} />
-        <KpiCard label="Stopped" value={fleet.stopped} tone="warning" icon={<MapPinned size={16} />} />
-        <KpiCard label="Offline" value={fleet.offline} tone={fleet.offline > 0 ? 'negative' : 'neutral'} icon={<ShieldAlert size={16} />} />
-        <KpiCard label="Open alerts" value={fleet.alerts} tone={fleet.alerts > 0 ? 'warning' : 'neutral'} icon={<AlertTriangle size={16} />} />
+        <Link href="/vehicles"><KpiCard label="Total vehicles" value={fleet.total} icon={<Truck size={16} />} /></Link>
+        <Link href="/vehicles?status=moving"><KpiCard label="Moving" value={fleet.moving} tone="positive" icon={<Navigation size={16} />} /></Link>
+        <Link href="/vehicles?status=idle"><KpiCard label="Idle" value={fleet.idle} icon={<Clock3 size={16} />} /></Link>
+        <Link href="/vehicles?status=stopped"><KpiCard label="Stopped" value={fleet.stopped} tone="warning" icon={<MapPinned size={16} />} /></Link>
+        <Link href="/vehicles?status=offline"><KpiCard label="Offline" value={fleet.offline} tone={fleet.offline > 0 ? 'negative' : 'neutral'} icon={<ShieldAlert size={16} />} /></Link>
+        <Link href="/alerts"><KpiCard label="Open alerts" value={fleet.alerts} tone={fleet.alerts > 0 ? 'warning' : 'neutral'} icon={<AlertTriangle size={16} />} /></Link>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Link href="/vehicles"><KpiCard label="Active vehicles" value={fleetQ.data?.activeVehicles ?? '—'} tone="positive" icon={<Truck size={16} />} /></Link>
+        <Link href="/vehicles?active=inactive"><KpiCard label="Disabled vehicles" value={fleetQ.data?.disabledVehicles ?? '—'} tone={(fleetQ.data?.disabledVehicles ?? 0) > 0 ? 'warning' : 'neutral'} icon={<ShieldAlert size={16} />} /></Link>
+        <Link href="/maintenance"><KpiCard label="Maintenance predictions" value={maintQ.data?.predictions?.length ?? '—'} tone={(maintQ.data?.predictions?.length ?? 0) > 0 ? 'warning' : 'neutral'} icon={<Wrench size={16} />} /></Link>
+        <Link href="/devices"><KpiCard label="Devices" value={devicesQ.data?.meta?.total ?? '—'} icon={<Activity size={16} />} /></Link>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard label="Insurance documents" value={insuranceQuery.data?.totalDocuments ?? '—'} icon={<ShieldAlert size={16} />} />
+        <KpiCard label="Expiring soon (30d)" value={insuranceQuery.data?.expiringSoon ?? '—'} tone={(insuranceQuery.data?.expiringSoon ?? 0) > 0 ? 'warning' : 'neutral'} icon={<Clock3 size={16} />} />
+        <KpiCard label="Expired" value={insuranceQuery.data?.expired ?? '—'} tone={(insuranceQuery.data?.expired ?? 0) > 0 ? 'negative' : 'neutral'} icon={<AlertTriangle size={16} />} />
+        <KpiCard label="Vehicles without insurance" value={insuranceQuery.data?.missingDocumentsVehicles ?? '—'} tone={(insuranceQuery.data?.missingDocumentsVehicles ?? 0) > 0 ? 'warning' : 'neutral'} icon={<Truck size={16} />} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.7fr,1fr]">
@@ -187,8 +222,8 @@ export default function DashboardPage(): ReactElement {
                 <FleetMap
                   positions={scoped}
                   geofences={geofences}
-                  selectedId={scoped[0]?.vehicleId ?? null}
-                  onSelect={() => undefined}
+                  selectedId={selectedVehicleId}
+                  onSelect={(id) => setSelectedVehicleId(id)}
                   fitSignal={0}
                   className="h-[420px] min-h-[320px] w-full overflow-hidden rounded-xl border border-[var(--border)]"
                 />
@@ -203,6 +238,15 @@ export default function DashboardPage(): ReactElement {
             )}
           </CardContent>
         </Card>
+
+        {selectedVehicleId && (
+          <div className="xl:col-span-2">
+            <VehicleDrawer
+              vehicle={latest.find((p) => p.vehicleId === selectedVehicleId) ?? null}
+              onClose={() => setSelectedVehicleId(null)}
+            />
+          </div>
+        )}
 
         <div className="flex flex-col gap-5">
           <Card>
@@ -342,6 +386,137 @@ export default function DashboardPage(): ReactElement {
           </Card>
         </div>
       </div>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle as="h2">Driver performance & safety</CardTitle></CardHeader>
+          <CardContent>
+            {driversQ.isLoading ? <LoadingPanel label="Loading drivers…" /> : (
+              <div className="space-y-2">
+                {(driversQ.data?.data ?? []).slice(0, 5).map((d: any) => (
+                  <div key={d.id} className="flex items-center justify-between rounded-lg border border-[var(--border)] p-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-[var(--text-primary)]">{d.name}</div>
+                      <div className="text-xs text-[var(--text-muted)]">Score {d.driverScore} · {d.overspeeding ?? 0} overspeed events</div>
+                    </div>
+                    <Badge variant={d.riskLevel === 'high' ? 'critical' : d.riskLevel === 'medium' ? 'warning' : 'success'}>{d.riskLevel}</Badge>
+                  </div>
+                ))}
+                {(!driversQ.data?.data || driversQ.data.data.length === 0) && <div className="text-sm text-[var(--text-muted)]">No driver data available.</div>}
+                <Link href="/drivers" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300">View all drivers <ArrowUpRight size={13} /></Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle as="h2">Vehicle health & diagnostics</CardTitle></CardHeader>
+          <CardContent>
+            {maintQ.isLoading ? <LoadingPanel label="Loading health…" /> : (
+              <div className="space-y-2">
+                <div className="text-sm text-[var(--text-secondary)]">High-risk predictions: <b className="text-[var(--text-primary)]">{(maintQ.data?.predictions ?? []).filter((p: any) => ['high','critical'].includes(p.riskLevel)).length}</b></div>
+                {(maintQ.data?.predictions ?? []).slice(0, 5).map((p: any) => (
+                  <div key={p.id} className="rounded-lg border border-[var(--border)] p-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-[var(--text-primary)]">{p.vehicleRegistration}</span>
+                      <Badge variant={p.riskLevel === 'critical' || p.riskLevel === 'high' ? 'critical' : 'warning'}>{p.riskLevel}</Badge>
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)]">{p.issueTitle}</div>
+                  </div>
+                ))}
+                {(!maintQ.data?.predictions || maintQ.data.predictions.length === 0) && <div className="text-sm text-[var(--text-muted)]">No maintenance predictions.</div>}
+                <Link href="/engine" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300">Open diagnostics <ArrowUpRight size={13} /></Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-3">
+        <Card>
+          <CardHeader><CardTitle as="h2">Fuel & mileage</CardTitle></CardHeader>
+          <CardContent>
+            {fuelQ.isLoading ? <LoadingPanel label="Loading fuel…" /> : (
+              <div className="space-y-2 text-sm">
+                <div>Mileage: <b>{fuelQ.data?.mileageKmPerL ?? '—'} km/l</b></div>
+                <div>Total litres: <b>{fuelQ.data?.totalLitres ?? '—'}</b></div>
+                <div>Distance: <b>{fuelQ.data?.totalDistanceKm ?? '—'} km</b></div>
+                <div>Refuel events: <b>{fuelQ.data?.refuelEvents ?? '—'}</b></div>
+                <Link href="/fuel" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300">Fuel analytics <ArrowUpRight size={13} /></Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle as="h2">Trip intelligence</CardTitle></CardHeader>
+          <CardContent>
+            {tripsQ.isLoading ? <LoadingPanel label="Loading trips…" /> : (
+              <div className="space-y-2 text-sm">
+                <div>Trips: <b>{tripsQ.data?.trips ?? '—'}</b></div>
+                <div>Distance: <b>{tripsQ.data?.distanceKm ?? '—'} km</b></div>
+                <div>Avg speed: <b>{tripsQ.data?.averageSpeedKph ?? '—'} km/h</b></div>
+                <div>Efficiency: <b>{tripsQ.data?.tripEfficiencyScore ?? '—'}</b></div>
+                <Link href="/trips" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300">Trip history <ArrowUpRight size={13} /></Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle as="h2">Device connectivity & GPS</CardTitle></CardHeader>
+          <CardContent>
+            {snapshot.isLoading ? <LoadingPanel label="Loading…" /> : (
+              <div className="space-y-2 text-sm">
+                <div>Devices in registry: <b>{devicesQ.data?.meta?.total ?? '—'}</b></div>
+                <div>GPS reporting vehicles: <b>{latest.length}</b></div>
+                <div>Weak GPS signal: <b>{latest.filter((p: any) => p.gpsSignal && p.gpsSignal !== 'ok').length}</b></div>
+                <div>Offline devices: <b>{latest.filter((p: any) => p.status === 'offline').length}</b></div>
+                <Link href="/devices" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300">Device management <ArrowUpRight size={13} /></Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle as="h2">Geofence activity</CardTitle></CardHeader>
+        <CardContent>
+          {geofenceEventsQ.isLoading ? <LoadingPanel label="Loading geofence events…" /> : (
+            <div className="space-y-2">
+              {(geofenceEventsQ.data?.data ?? []).slice(0, 6).map((e: any, i: number) => (
+                <div key={i} className="flex items-center justify-between rounded-lg border border-[var(--border)] p-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-medium text-[var(--text-primary)]">{e.eventType ?? e.type ?? 'Event'}</div>
+                    <div className="text-xs text-[var(--text-muted)]">{e.vehicleRegistration ?? e.vehicleId ?? '—'}</div>
+                  </div>
+                  <div className="text-xs text-[var(--text-muted)]">{formatRelative(e.occurredAt ?? e.timestamp ?? null)}</div>
+                </div>
+              ))}
+              {(!geofenceEventsQ.data?.data || geofenceEventsQ.data.data.length === 0) && <div className="text-sm text-[var(--text-muted)]">No recent geofence events.</div>}
+              <Link href="/geofences" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300">Geofence management <ArrowUpRight size={13} /></Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle as="h2">AI fleet insights</CardTitle></CardHeader>
+        <CardContent>
+          {insightsQ.isLoading ? <LoadingPanel label="Generating insights…" /> : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {(insightsQ.data?.data ?? []).map((i: any, idx: number) => (
+                <div key={idx} className="rounded-lg border border-[var(--border)] bg-[var(--bg-app)] p-3">
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">{i.title}</div>
+                  <div className="mt-0.5 text-xs text-[var(--text-secondary)]">{i.detail}</div>
+                </div>
+              ))}
+              {(!insightsQ.data?.data || insightsQ.data.data.length === 0) && <div className="text-sm text-[var(--text-muted)]">No insights available.</div>}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+          <AiCopilot />
     </PageLayout>
   );
 }

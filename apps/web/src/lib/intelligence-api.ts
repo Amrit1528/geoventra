@@ -11,4 +11,5 @@ export function fetchIntelligenceRecommendations() { return apiRequest<any>('/in
 export function fetchIntelligenceForecast() { return apiRequest<any>('/intelligence/forecast'); }
 export function fetchIntelligenceCosts(params?: any) { return apiRequest<any>('/intelligence/costs', { query: params }); }
 export function fetchIntelligenceVehicleRanking(params?: any) { return apiRequest<any>('/intelligence/vehicle-ranking', { query: params }); }
+export function fetchIntelligenceInsights() { return apiRequest<any>('/intelligence/insights'); }
 export function askIntelligenceAssistant(question: string, params?: any) { return apiRequest<any>('/intelligence/assistant', { method: 'POST', body: { question, ...params } }); }

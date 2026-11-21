@@ -132,7 +132,7 @@ export default function GeofencesPage(): ReactElement {
           attribution: '© OpenStreetMap contributors',
           maxzoom: 19,
         });
-        map.addLayer({ id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.75 } }, 'background');
+        map.addLayer({ id: 'osm', type: 'raster', source: 'osm-tiles', paint: { 'raster-opacity': 0.75 } });
       }
       map.addSource('geofences', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addLayer({ id: 'geofences-fill', type: 'fill', source: 'geofences', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.15 } });

@@ -194,6 +194,8 @@ export class TrackingService {
               this.logger.warn(`Geofence evaluation failed for ${binding.vehicleId}: ${error.message}`);
               return [];
             }),
+          this.evaluateTelemetryAlerts(binding.organisationId, binding.vehicleId, binding.registrationNumber, event)
+            .catch((error: Error) => this.logger.warn(`Alert evaluation failed for ${binding.vehicleId}: ${error.message}`)),
         ]);
 
         const changed = changedByOrg.get(binding.organisationId) ?? new Set<string>();
@@ -224,6 +226,58 @@ export class TrackingService {
     return { accepted, rejected, receivedAt: new Date().toISOString() };
   }
 
+
+  private async evaluateTelemetryAlerts(
+    organisationId: string,
+    vehicleId: string,
+    registrationNumber: string,
+    event: NormalizedGpsEvent,
+  ): Promise<void> {
+    const speed = Number(event.speedKph ?? 0);
+    if (speed > 80) {
+      await this.raiseAlert(organisationId, vehicleId, 'overspeed', 'high',
+        `Vehicle ${registrationNumber} overspeeding at ${speed} km/h`, event.latitude, event.longitude, event.recordedAt);
+    }
+    if (speed === 0 && event.ignition === false) {
+      const prev = await this.database.queryOne<any>(
+        `SELECT status, last_recorded_at AS "lastRecordedAt" FROM geoventra.vehicle_live_status WHERE vehicle_id = $1`,
+        [vehicleId],
+      );
+      if (prev?.status === 'idle' && prev.lastRecordedAt) {
+        const gap = new Date(event.recordedAt).getTime() - new Date(prev.lastRecordedAt).getTime();
+        if (gap > 30 * 60000) {
+          await this.raiseAlert(organisationId, vehicleId, 'long_idle', 'medium',
+            `Vehicle ${registrationNumber} idle for over 30 minutes`, event.latitude, event.longitude, event.recordedAt);
+        }
+      }
+    }
+    if (event.batteryVoltage != null && Number(event.batteryVoltage) < 11.5) {
+      await this.raiseAlert(organisationId, vehicleId, 'low_battery', 'medium',
+        `Vehicle ${registrationNumber} low battery voltage (${event.batteryVoltage}V)`, event.latitude, event.longitude, event.recordedAt);
+    }
+  }
+
+  private async raiseAlert(
+    organisationId: string,
+    vehicleId: string,
+    type: string,
+    severity: string,
+    message: string,
+    latitude: number,
+    longitude: number,
+    occurredAt: string,
+  ): Promise<void> {
+    const existing = await this.database.queryOne<any>(
+      `SELECT id FROM geoventra.alerts WHERE organisation_id = $1 AND vehicle_id = $2 AND type = $3 AND status IN ('open','acknowledged')`,
+      [organisationId, vehicleId, type],
+    );
+    if (existing) return;
+    await this.database.query(
+      `INSERT INTO geoventra.alerts (organisation_id, vehicle_id, type, severity, status, title, message, latitude, longitude, occurred_at, dedupe_key)
+       VALUES ($1,$2,$3,$4,'open',$5,$6,$7,$8,$9,$10)`,
+      [organisationId, vehicleId, type, severity, type.replace(/_/g, ' '), message, latitude, longitude, occurredAt, `${type}:${vehicleId}`],
+    );
+  }
 
   private async persist(
     organisationId: string,

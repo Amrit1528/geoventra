@@ -35,6 +35,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { Pt06Module } from './pt06/pt06.module.js';
 import { AdminModule } from './admin/admin.module.js';
+import { IncidentsModule } from './incidents/incidents.module.js';
 import { IntelligenceModule } from './intelligence/intelligence.module.js';
 
 @Module({
@@ -66,6 +67,7 @@ import { IntelligenceModule } from './intelligence/intelligence.module.js';
     ReportsModule,
     Pt06Module,
     IntelligenceModule,
+    IncidentsModule,
   ],
 })
 export class AppModule {}

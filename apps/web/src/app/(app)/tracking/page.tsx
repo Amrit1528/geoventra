@@ -23,6 +23,7 @@ import { Badge, Button, Card, CardContent, Select, cn } from '@geoventra/ui';
 import type { LivePosition, TrackPoint } from '@geoventra/contracts';
 import { FleetMap, type FleetRouteStop } from '@/components/map/FleetMap';
 import { VehicleDrawer } from '@/components/map/VehicleDrawer';
+import { AiCopilot } from '@/components/ai/AiCopilot';
 import { fetchSnapshot, fetchTrail, fetchTripPlayback, fetchTrips } from '@/lib/track-api';
 import {
   connectTrackingSocket,
@@ -271,7 +272,7 @@ export default function TrackingPage(): ReactElement {
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 sm:px-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-base font-bold tracking-tight text-[var(--text-primary)] sm:text-lg">Live Tracking — Fleet Command Centre</h1>
+            <h1 className="text-base font-bold tracking-tight text-[var(--text-primary)] sm:text-lg">Live Tracking</h1>
             <span data-testid="tracking-socket-status" className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest', socketStatus === 'live' || socketStatus === 'reconnected' ? 'border-emerald-200 text-emerald-700 [html[data-theme="dark"]_&]:border-emerald-800/60 [html[data-theme="dark"]_&]:text-emerald-400' : stale ? 'border-red-200 text-red-700 [html[data-theme="dark"]_&]:border-red-800/60 [html[data-theme="dark"]_&]:text-red-400' : 'border-amber-200 text-amber-700 [html[data-theme="dark"]_&]:border-amber-800/60 [html[data-theme="dark"]_&]:text-amber-400')}>
               <span className={cn('h-1.5 w-1.5 rounded-full', socketStatus === 'live' || socketStatus === 'reconnected' ? 'bg-emerald-500' : stale ? 'bg-red-500' : 'bg-amber-500 animate-pulse')} />
               {socketStatus === 'live' ? 'Live' : socketStatus}
@@ -434,11 +435,14 @@ export default function TrackingPage(): ReactElement {
           </div>
         ) : null}
       </div>
+      <AiCopilot vehicleId={selectedId} />
     </div>
   );
 }
 
-function StatPill({ label, value, tone = 'neutral' }: { label: string; value: number; tone?: 'ok' | 'warn' | 'crit' | 'neutral' }): ReactElement {
+// copilot mount marker
+function StatPill
+({ label, value, tone = 'neutral' }: { label: string; value: number; tone?: 'ok' | 'warn' | 'crit' | 'neutral' }): ReactElement {
   const cls = tone === 'ok' ? 'text-emerald-700 [html[data-theme="dark"]_&]:text-emerald-300' : tone === 'warn' ? 'text-amber-700 [html[data-theme="dark"]_&]:text-amber-300' : tone === 'crit' ? 'text-red-700 [html[data-theme="dark"]_&]:text-red-300' : 'text-[var(--text-primary)]';
   return <div className="rounded-lg bg-[var(--bg-app)] px-2 py-1.5 ring-1 ring-[var(--border)]"><div className={cn('text-sm font-bold', cls)}>{value}</div><div className="text-[10px] text-[var(--text-muted)]">{label}</div></div>;
 }

@@ -15,6 +15,7 @@ import { X, Gauge, Zap, Navigation, MapPin, Clock, Satellite, BatteryMedium, Rad
 import { Badge, badgeVariantForSeverity, Button, cn, Card, CardContent } from '@geoventra/ui';
 import type { LivePosition } from '@geoventra/contracts';
 import { fetchTrips } from '@/lib/track-api';
+import { fetchVehicleFullProfile } from '@/lib/vehicles-api';
 import { formatDateTime, formatRelativeTime, formatMetricValue, formatSpeedKph } from '@/lib/format';
 
 export interface VehicleDrawerProps {
@@ -37,6 +38,21 @@ export function VehicleDrawer({ vehicle, onClose, className }: VehicleDrawerProp
   });
   const trips = tripsQuery.data?.data ?? [];
   const tripsMeta = tripsQuery.data?.meta;
+
+  const profileQuery = useQuery({
+    queryKey: ['vehicle-full-profile', vehicle.vehicleId],
+    queryFn: () => fetchVehicleFullProfile(vehicle.vehicleId),
+    enabled: Boolean(vehicle.vehicleId),
+  });
+  const insurance = (profileQuery.data?.insurance ?? []) as any[];
+  const latestInsurance = insurance.length ? insurance[0] : null;
+  function insuranceStatus(exp?: string | null) {
+    if (!exp) return 'Not available';
+    const days = (new Date(exp).getTime() - Date.now()) / 86400000;
+    if (days < 0) return 'Expired';
+    if (days <= 30) return 'Expiring soon';
+    return 'Active';
+  }
 
   return (
     <aside
@@ -116,6 +132,46 @@ export function VehicleDrawer({ vehicle, onClose, className }: VehicleDrawerProp
             </CardContent>
           </Card>
         </div>
+
+        {/* Insurance */}
+        <Card className="mt-3">
+          <CardContent className="py-3">
+            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              Insurance
+            </p>
+            {profileQuery.isLoading ? (
+              <p className="mt-1 text-xs text-[var(--text-muted)]">Loading…</p>
+            ) : latestInsurance ? (
+              <div className="mt-1 space-y-0.5 text-xs">
+                <p className="font-semibold text-[var(--text-primary)]">{insuranceStatus(latestInsurance.expiresAt ?? latestInsurance.expires_at)}</p>
+                <p className="text-[var(--text-muted)]">{latestInsurance.name ?? latestInsurance.document_type}</p>
+                <p className="text-[var(--text-muted)]">Expires: {latestInsurance.expiresAt ?? latestInsurance.expires_at ?? '—'}</p>
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-[var(--text-muted)]">Insurance details not available</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Driver & device details */}
+        <Card className="mt-3">
+          <CardContent className="py-3">
+            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              Driver & device
+            </p>
+            {profileQuery.isLoading ? (
+              <p className="mt-1 text-xs text-[var(--text-muted)]">Loading…</p>
+            ) : (
+              <div className="mt-1 space-y-0.5 text-xs">
+                <p className="text-[var(--text-primary)]">Driver: <b>{profileQuery.data?.driver?.name ?? vehicle.driverName ?? 'Unassigned'}</b></p>
+                <p className="text-[var(--text-muted)]">Phone: {profileQuery.data?.driver?.phone ?? '—'}</p>
+                <p className="text-[var(--text-primary)]">Device: <b>{profileQuery.data?.device?.device_id ?? vehicle.deviceId ?? '—'}</b></p>
+                <p className="text-[var(--text-muted)]">Model: {profileQuery.data?.device?.model ?? '—'} · Status: {profileQuery.data?.device?.status ?? '—'}</p>
+                <p className="text-[var(--text-muted)]">Trips: {profileQuery.data?.tripsSummary?.trips ?? '—'} · Distance: {Number(profileQuery.data?.tripsSummary?.distanceKm ?? 0).toFixed(1)} km</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Telemetry freshness */}
         <Card className="mt-3">

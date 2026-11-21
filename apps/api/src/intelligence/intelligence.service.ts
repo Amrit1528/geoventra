@@ -43,6 +43,7 @@ export class IntelligenceService {
     const v = await this.safe(() => this.db.queryOne<any>(
       `SELECT COUNT(*)::int AS total,
               COUNT(*) FILTER (WHERE active_flag IS TRUE)::int AS active,
+              COUNT(*) FILTER (WHERE active_flag IS FALSE)::int AS disabled,
               COUNT(*) FILTER (WHERE status='moving')::int AS moving,
               COUNT(*) FILTER (WHERE status='idle')::int AS idle,
               COUNT(*) FILTER (WHERE status='stopped')::int AS stopped,
@@ -71,7 +72,7 @@ export class IntelligenceService {
     const avgOperatingHours = totalVehicles > 0 ? operatingHours / totalVehicles : 0;
     const productivity = clamp((utilization * 0.4) + (availability * 0.3) + (Math.min(100, avgDailyDistance / 50) * 0.3));
     return {
-      totalVehicles, activeVehicles: num(v?.active), moving: num(v?.moving), idle: num(v?.idle),
+      totalVehicles, activeVehicles: num(v?.active), disabledVehicles: num(v?.disabled), moving: num(v?.moving), idle: num(v?.idle),
       stopped: num(v?.stopped), offline: num(v?.offline), underMaintenance: num(v?.underMaintenance),
       availabilityPercent: Number(availability.toFixed(2)),
       utilizationPercent: Number(utilization.toFixed(2)),
@@ -494,75 +495,215 @@ export class IntelligenceService {
     };
   }
 
+  async insights(organisationId: string) {
+    const fleet = await this.fleet(organisationId, {});
+    const fuel = await this.fuel(organisationId, {});
+    const maint = await this.maintenance(organisationId);
+    const anomalies = await this.anomalies(organisationId, {});
+    const drivers = await this.drivers(organisationId, {});
+    const idleLong = await this.safe(() => this.db.query<any>(
+      `SELECT v.id, v.registration_number AS "registrationNumber", vls.last_recorded_at AS "lastRecordedAt"
+         FROM geoventra.vehicles v
+         JOIN geoventra.vehicle_live_status vls ON vls.vehicle_id = v.id
+        WHERE v.organisation_id = $1 AND vls.status = 'idle'
+          AND vls.last_recorded_at < now() - interval '30 minutes'`, [organisationId]), []);
+    const overspeed = await this.safe(() => this.db.query<any>(
+      `SELECT v.id, v.registration_number AS "registrationNumber", vls.speed_kph AS "speedKph"
+         FROM geoventra.vehicles v
+         JOIN geoventra.vehicle_live_status vls ON vls.vehicle_id = v.id
+        WHERE v.organisation_id = $1 AND COALESCE(vls.speed_kph,0) > 80`, [organisationId]), []);
+    const expiring = await this.safe(() => this.db.query<any>(
+      `SELECT v.id, v.registration_number AS "registrationNumber", vd.expires_at AS "expiresAt"
+         FROM geoventra.vehicle_documents vd JOIN geoventra.vehicles v ON v.id = vd.vehicle_id
+        WHERE v.organisation_id = $1 AND vd.expires_at IS NOT NULL
+          AND vd.expires_at >= now() AND vd.expires_at <= now() + interval '30 days'`, [organisationId]), []);
+    const items: Array<{ title: string; detail: string; tone: 'warning' | 'critical' | 'info' | 'success' }> = [];
+    if (fleet.offline > 0) items.push({ title: `${fleet.offline} vehicle${fleet.offline === 1 ? '' : 's'} offline`, detail: 'Devices are not reporting. Check connectivity and last known positions.', tone: fleet.offline > 2 ? 'critical' : 'warning' });
+    if (idleLong.length > 0) items.push({ title: `${idleLong.length} vehicle${idleLong.length === 1 ? '' : 's'} idle for over 30 minutes`, detail: 'Review prolonged idle events to reduce fuel waste.', tone: 'warning' });
+    if (overspeed.length > 0) items.push({ title: `${overspeed.length} vehicle${overspeed.length === 1 ? '' : 's'} currently overspeeding`, detail: 'Immediate safety attention required.', tone: 'critical' });
+    const highRiskMaint = (maint.predictions || []).filter((p: any) => ['high', 'critical'].includes(p.riskLevel));
+    if (highRiskMaint.length > 0) items.push({ title: `${highRiskMaint.length} vehicle${highRiskMaint.length === 1 ? '' : 's'} need maintenance`, detail: 'Schedule preventive service based on health predictions.', tone: 'warning' });
+    const highRiskDrivers = (drivers.data || []).filter((d: any) => d.riskLevel === 'high');
+    if (highRiskDrivers.length > 0) items.push({ title: `${highRiskDrivers.length} driver${highRiskDrivers.length === 1 ? '' : 's'} at high safety risk`, detail: 'Review driving behaviour and provide coaching.', tone: 'warning' });
+    if (expiring.length > 0) items.push({ title: `${expiring.length} insurance polic${expiring.length === 1 ? 'y' : 'ies'} expiring within 30 days`, detail: 'Renew before expiry to avoid compliance gaps.', tone: 'warning' });
+    const flaggedFuel = (fuel.vehicleRanking || []).filter((r: any) => r.flag === 'excessive_consumption');
+    if (flaggedFuel.length > 0) items.push({ title: `${flaggedFuel.length} vehicle${flaggedFuel.length === 1 ? '' : 's'} show excessive fuel consumption`, detail: 'Inspect fuel system and driving habits.', tone: 'warning' });
+    if ((anomalies.data || []).length > 0) items.push({ title: `${(anomalies.data || []).length} open anomal${(anomalies.data || []).length === 1 ? 'y' : 'ies'}`, detail: 'Review and resolve from the alert centre.', tone: 'warning' });
+    if (items.length === 0) items.push({ title: 'Fleet operating normally', detail: 'No critical conditions detected in current data.', tone: 'success' });
+    return { data: items, generatedAt: new Date().toISOString() };
+  }
+
   async assistant(organisationId: string, question: string, query: any = {}) {
-    const q = (question || '').toLowerCase();
-    let answer = 'I could not find a specific answer. Try asking about fleet size, fuel, drivers, maintenance, or anomalies.';
+    const q = (question || '').toLowerCase().trim();
+    let intent = 'unknown';
+    const vehicleId = query?.vehicleId || query?.selectedVehicleId;
+
+    const greetingTerms = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings', 'namaste'];
+    const isGreeting = greetingTerms.some((g) => q === g || q.startsWith(g + ' ') || q.startsWith(g + '!') || q.startsWith(g + ','));
+    if (isGreeting) {
+      intent = 'greeting';
+      return {
+        question,
+        answer: "Hi! I'm GeoVentra AI Fleet Copilot. I can help you monitor vehicles, drivers, trips, maintenance, insurance, and fleet performance. What would you like to know?",
+        intent,
+        data: {},
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    const generalTerms = ['how are you', 'who are you', 'what can you do', 'help', 'what is your name', 'thank you', 'thanks'];
+    const isGeneral = generalTerms.some((g) => q.includes(g));
+    if (isGeneral) {
+      intent = 'general_conversation';
+      return {
+        question,
+        answer: "I'm doing well. I'm GeoVentra AI Fleet Copilot, ready to help with fleet tracking, vehicle status, drivers, trips, maintenance, insurance, and fleet performance.",
+        intent,
+        data: {},
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    let answer = 'I could not find a specific answer. Try asking about offline vehicles, idle vehicles, overspeeding, maintenance, insurance, anomalies, or fleet performance.';
     const data: any = {};
-    if (q.includes('vehicle') && (q.includes('worst') || q.includes('lowest')) && q.includes('mileage')) {
-      const fuel = await this.fuel(organisationId, query);
-      const worst = [...(fuel.vehicleRanking || [])].sort((a: any, b: any) => a.mileageKmPerL - b.mileageKmPerL)[0];
-      if (worst) { answer = `Vehicle ${worst.registrationNumber} has the worst mileage at ${worst.mileageKmPerL} km/l.`; data.worst = worst; }
-    } else if (q.includes('driver') && q.includes('best')) {
-      const d = await this.drivers(organisationId, query);
-      const best = (d.data || [])[0];
-      if (best) { answer = `Top driver is ${best.name} with score ${best.driverScore}.`; data.best = best; }
-    } else if (q.includes('fuel') && (q.includes('total') || q.includes('expense'))) {
-      const f = await this.fuel(organisationId, query);
-      answer = `Total fuel consumed: ${f.totalLitres} litres over ${f.totalDistanceKm} km (avg ${f.mileageKmPerL} km/l).`;
-      data.fuel = f;
-    } else if (q.includes('maintenance') && q.includes('require')) {
-      const m = await this.maintenance(organisationId);
-      answer = `${(m.predictions || []).length} active maintenance predictions.`;
-      data.predictions = m.predictions;
-    } else if (q.includes('inactive')) {
-      const fl = await this.fleet(organisationId, query);
-      answer = `${fl.offline + fl.stopped} vehicles are currently inactive/offline.`;
-      data.fleet = fl;
-    } else if (q.includes('utilization')) {
-      const fl = await this.fleet(organisationId, query);
-      answer = `Fleet utilization is ${fl.utilizationPercent}%.`;
-      data.fleet = fl;
-    } else if (q.includes('average distance')) {
-      const fl = await this.fleet(organisationId, query);
-      answer = `Average daily distance per vehicle is ${fl.averageDailyDistanceKm} km.`;
-      data.fleet = fl;
-    } else if (q.includes('anomal')) {
-      const a = await this.anomalies(organisationId, query);
-      answer = `${(a.data || []).length} anomalies detected in the selected period.`;
-      data.anomalies = a.data;
-    } else if (q.includes('safety risk') || q.includes('risk')) {
-      const d = await this.drivers(organisationId, query);
-      const high = (d.data || []).filter((x: any) => x.riskLevel === 'high');
-      answer = `${high.length} drivers classified as high safety risk.`;
-      data.highRiskDrivers = high;
-    } else if (q.includes('cost') && (q.includes('km') || q.includes('per'))) {
-      const c = await this.costs(organisationId, query);
-      answer = `Total operating cost ${c.totalCost} (${c.costPerKm} per km): fuel ${c.fuelCost}, maintenance ${c.maintenanceCost}.`;
-      data.costs = c;
-    } else if (q.includes('lowest mileage') || q.includes('worst mileage')) {
-      const f = await this.fuel(organisationId, query);
-      const worst = [...(f.vehicleRanking || [])].sort((a: any, b: any) => a.mileageKmPerL - b.mileageKmPerL).slice(0, 5);
-      answer = `Lowest mileage vehicles: ${worst.map((w: any) => `${w.registrationNumber} (${w.mileageKmPerL} km/l)`).join(', ')}.`;
-      data.worst = worst;
-    } else if (q.includes('servic') && (q.includes('15') || q.includes('days') || q.includes('next'))) {
+
+    const offlineRows = await this.safe(() => this.db.query<any>(
+      `SELECT v.id, v.registration_number AS "registrationNumber"
+         FROM geoventra.vehicles v
+         LEFT JOIN geoventra.vehicle_live_status vls ON vls.vehicle_id = v.id
+        WHERE v.organisation_id = $1 AND (vls.status = 'offline' OR vls.last_recorded_at IS NULL OR vls.last_recorded_at < now() - interval '10 minutes')
+        ORDER BY v.registration_number`, [organisationId]), []);
+
+    if (q.includes('offline')) {
+      intent = 'offline_vehicles';
+      answer = offlineRows.length === 0
+        ? 'No vehicles are currently offline.'
+        : `${offlineRows.length} vehicle${offlineRows.length === 1 ? '' : 's'} offline: ${offlineRows.map((r: any) => r.registrationNumber).join(', ')}.`;
+      data.offlineVehicles = offlineRows;
+    } else if (q.includes('idle')) {
+      intent = 'idle_vehicles';
+      const idleRows = await this.safe(() => this.db.query<any>(
+        `SELECT v.id, v.registration_number AS "registrationNumber", vls.last_recorded_at AS "lastRecordedAt"
+           FROM geoventra.vehicles v
+           JOIN geoventra.vehicle_live_status vls ON vls.vehicle_id = v.id
+          WHERE v.organisation_id = $1 AND vls.status = 'idle'
+          ORDER BY vls.last_recorded_at`, [organisationId]), []);
+      const longIdle = idleRows.filter((r: any) => r.lastRecordedAt && (Date.now() - new Date(r.lastRecordedAt).getTime()) > 30 * 60000);
+      answer = idleRows.length === 0
+        ? 'No vehicles are currently idle.'
+        : `${idleRows.length} vehicle${idleRows.length === 1 ? '' : 's'} idle${longIdle.length ? ` (${longIdle.length} for over 30 minutes)` : ''}: ${idleRows.map((r: any) => r.registrationNumber).join(', ')}.`;
+      data.idleVehicles = idleRows;
+      data.longIdleVehicles = longIdle;
+    } else if (q.includes('overspeed') || q.includes('speeding')) {
+      intent = 'overspeeding';
+      const rows = await this.safe(() => this.db.query<any>(
+        `SELECT v.id, v.registration_number AS "registrationNumber", vls.speed_kph AS "speedKph"
+           FROM geoventra.vehicles v
+           JOIN geoventra.vehicle_live_status vls ON vls.vehicle_id = v.id
+          WHERE v.organisation_id = $1 AND COALESCE(vls.speed_kph,0) > 80
+          ORDER BY vls.speed_kph DESC`, [organisationId]), []);
+      const drivers = await this.drivers(organisationId, {});
+      const riskyDrivers = (drivers.data || []).filter((d: any) => num(d.overspeeding) > 0);
+      answer = rows.length === 0 && riskyDrivers.length === 0
+        ? 'No vehicles are currently overspeeding and no drivers have overspeeding events.'
+        : `${rows.length} vehicle${rows.length === 1 ? '' : 's'} currently overspeeding${rows.length ? `: ${rows.map((r: any) => `${r.registrationNumber} (${r.speedKph} km/h)`).join(', ')}` : ''}. ${riskyDrivers.length} driver${riskyDrivers.length === 1 ? '' : 's'} with recorded overspeeding events.`;
+      data.overspeedingVehicles = rows;
+      data.overspeedingDrivers = riskyDrivers;
+    } else if (q.includes('maintenance')) {
+      intent = 'maintenance';
       const m = await this.maintenance(organisationId);
       const preds = m.predictions || [];
-      answer = `${preds.length} vehicles have active maintenance predictions.`;
+      const high = preds.filter((p: any) => ['high', 'critical'].includes(p.riskLevel));
+      answer = preds.length === 0
+        ? 'No active maintenance predictions.'
+        : `${preds.length} maintenance prediction${preds.length === 1 ? '' : 's'} (${high.length} high/critical). ${high.slice(0, 5).map((p: any) => p.vehicleRegistration).join(', ')}.`;
       data.predictions = preds;
-    } else if (q.includes('utilization') && (q.includes('previous') || q.includes('compare') || q.includes('month'))) {
-      const fl = await this.fleet(organisationId, query);
-      answer = `Current utilization ${fl.utilizationPercent}% vs previous period ${fl.previousUtilizationPercent}% (change ${fl.utilizationChangePercent}%).`;
+    } else if (q.includes('insurance') && (q.includes('expir') || q.includes('renew'))) {
+      intent = 'insurance_expiry';
+      const rows = await this.safe(() => this.db.query<any>(
+        `SELECT v.id, v.registration_number AS "registrationNumber", vd.expires_at AS "expiresAt", vd.name
+           FROM geoventra.vehicle_documents vd JOIN geoventra.vehicles v ON v.id = vd.vehicle_id
+          WHERE v.organisation_id = $1 AND vd.expires_at IS NOT NULL
+            AND vd.expires_at <= now() + interval '30 days'
+          ORDER BY vd.expires_at`, [organisationId]), []);
+      answer = rows.length === 0
+        ? 'No insurance policies expiring within 30 days.'
+        : `${rows.length} polic${rows.length === 1 ? 'y' : 'ies'} expiring within 30 days: ${rows.map((r: any) => `${r.registrationNumber} (${new Date(r.expiresAt).toLocaleDateString()})`).join(', ')}.`;
+      data.expiringInsurance = rows;
+    } else if (q.includes('why') && vehicleId) {
+      intent = 'vehicle_warning';
+      const tracking = await this.safe(() => this.db.queryOne<any>(
+        `SELECT v.registration_number AS "registrationNumber", vls.status, vls.speed_kph AS "speedKph", vls.last_recorded_at AS "lastRecordedAt", vls.battery_voltage AS "batteryVoltage"
+           FROM geoventra.vehicles v LEFT JOIN geoventra.vehicle_live_status vls ON vls.vehicle_id = v.id
+          WHERE v.organisation_id = $1 AND v.id = $2`, [organisationId, vehicleId]), {});
+      const alerts = await this.safe(() => this.db.query<any>(
+        `SELECT type, severity, title, message, occurred_at AS "occurredAt" FROM geoventra.alerts
+          WHERE organisation_id = $1 AND vehicle_id = $2 AND status IN ('open','acknowledged')
+          ORDER BY occurred_at DESC LIMIT 5`, [organisationId, vehicleId]), []);
+      const reasons: string[] = [];
+      if (tracking?.status === 'offline') reasons.push('vehicle is offline (no recent telemetry)');
+      if (tracking?.lastRecordedAt && (Date.now() - new Date(tracking.lastRecordedAt).getTime()) > 10 * 60000) reasons.push('GPS data is stale');
+      if (tracking?.batteryVoltage != null && Number(tracking.batteryVoltage) < 12) reasons.push('low battery voltage');
+      if (alerts.length > 0) reasons.push(`${alerts.length} open alert${alerts.length === 1 ? '' : 's'} (${alerts.map((a: any) => a.type).join(', ')})`);
+      answer = reasons.length === 0
+        ? `${tracking?.registrationNumber ?? 'Vehicle'} shows no active warnings.`
+        : `${tracking?.registrationNumber ?? 'Vehicle'} shows a warning because: ${reasons.join('; ')}.`;
+      data.vehicle = tracking;
+      data.alerts = alerts;
+    } else if (q.includes('summarize') || q.includes('summary') || q.includes('today') || q.includes('performance')) {
+      intent = 'fleet_summary';
+      const fleet = await this.fleet(organisationId, {});
+      const fuel = await this.fuel(organisationId, {});
+      const trips = await this.trips(organisationId, {});
+      const anomalies = await this.anomalies(organisationId, {});
+      const maint = await this.maintenance(organisationId);
+      answer = `Fleet summary: ${fleet.totalVehicles} vehicles (${fleet.activeVehicles} active, ${fleet.moving} moving, ${fleet.idle} idle, ${fleet.offline} offline, ${fleet.disabledVehicles} disabled). Utilization ${fleet.utilizationPercent}%. Trips: ${trips.trips} covering ${trips.distanceKm} km. Fuel: ${fuel.totalLitres} litres, ${fuel.mileageKmPerL} km/l. Anomalies: ${(anomalies.data || []).length}. Maintenance predictions: ${(maint.predictions || []).length}.`;
+      data.fleet = fleet; data.fuel = fuel; data.trips = trips; data.anomalies = anomalies; data.maintenance = maint;
+    } else if (q.includes('trip')) {
+      intent = 'trip_information';
+      const trips = await this.trips(organisationId, {});
+      answer = `Trips: ${trips.trips} covering ${trips.distanceKm} km (avg speed ${trips.averageSpeedKph} km/h).`;
+      data.trips = trips;
+    } else if (q.includes('vehicle') && (q.includes('detail') || q.includes('info') || vehicleId)) {
+      intent = 'vehicle_details';
+      if (vehicleId) {
+        const tracking = await this.safe(() => this.db.queryOne<any>(
+          `SELECT v.registration_number AS "registrationNumber", vls.status, vls.speed_kph AS "speedKph", vls.last_recorded_at AS "lastRecordedAt"
+             FROM geoventra.vehicles v LEFT JOIN geoventra.vehicle_live_status vls ON vls.vehicle_id = v.id
+            WHERE v.organisation_id = $1 AND v.id = $2`, [organisationId, vehicleId]), {});
+        answer = tracking ? `${tracking.registrationNumber}: status ${tracking.status ?? 'unknown'}, speed ${tracking.speedKph ?? 0} km/h, last report ${tracking.lastRecordedAt ? new Date(tracking.lastRecordedAt).toLocaleString() : 'never'}.` : 'Vehicle not found.';
+        data.vehicle = tracking;
+      } else {
+        const fleet = await this.fleet(organisationId, {});
+        answer = `Fleet has ${fleet.totalVehicles} vehicles (${fleet.activeVehicles} active, ${fleet.offline} offline).`;
+        data.fleet = fleet;
+      }
+    } else if (q.includes('anomal')) {
+      intent = 'anomalies';
+      const a = await this.anomalies(organisationId, {});
+      answer = `${(a.data || []).length} anomalies detected in the selected period.`;
+      data.anomalies = a.data;
+    } else if (q.includes('driver') && (q.includes('risk') || q.includes('safety') || q.includes('overspeed'))) {
+      intent = 'driver_risk';
+      const d = await this.drivers(organisationId, {});
+      const high = (d.data || []).filter((x: any) => x.riskLevel === 'high');
+      answer = `${high.length} of ${(d.data || []).length} drivers classified as high safety risk.`;
+      data.highRiskDrivers = high;
+    } else if (q.includes('fuel') && (q.includes('total') || q.includes('consum'))) {
+      intent = 'fuel_summary';
+      const f = await this.fuel(organisationId, {});
+      answer = `Total fuel consumed: ${f.totalLitres} litres over ${f.totalDistanceKm} km (avg ${f.mileageKmPerL} km/l).`;
+      data.fuel = f;
+    } else if (q.includes('utilization')) {
+      intent = 'utilization';
+      const fl = await this.fleet(organisationId, {});
+      answer = `Fleet utilization is ${fl.utilizationPercent}% (previous period ${fl.previousUtilizationPercent}%).`;
       data.fleet = fl;
-    } else if (q.includes('abnormal fuel') || q.includes('fuel consumption')) {
-      const f = await this.fuel(organisationId, query);
-      const flagged = (f.vehicleRanking || []).filter((r: any) => r.flag === 'excessive_consumption');
-      answer = `${flagged.length} vehicles show excessive fuel consumption.`;
-      data.flagged = flagged;
-    } else if (q.includes('total operating cost') || q.includes('operating cost per')) {
-      const c = await this.costs(organisationId, query);
-      answer = `Operating cost per km is ${c.costPerKm}.`;
-      data.costs = c;
     }
-    return { question, answer, data, generatedAt: new Date().toISOString() };
+    if (intent === 'unknown') {
+      intent = 'unsupported_query';
+      answer = "I'm not able to answer that question yet. I can currently help with fleet tracking, vehicle status, drivers, trips, maintenance, insurance, and fleet performance.";
+    }
+    return { question, answer, intent, data, generatedAt: new Date().toISOString() };
   }
 }
