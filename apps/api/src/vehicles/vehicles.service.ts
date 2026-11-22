@@ -38,6 +38,7 @@ function mapSummary(row: any): VehicleSummary {
     lastBatteryVoltage: row.last_battery_voltage != null ? Number(row.last_battery_voltage) : null,
     lastRecordedAt: row.last_recorded_at ?? row.lastRecordedAt ?? null,
     activeFlag: row.active_flag ?? row.activeFlag ?? true,
+    gpsFreshnessMinutes: row.gps_freshness_minutes ?? row.gpsFreshnessMinutes ?? null,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
   };
 }
@@ -145,6 +146,15 @@ export class VehiclesService {
       [organisationId, id],
     );
     return { vehicle, driver, device, insurance, latestTelemetry: telemetry, tripsSummary: trips, generatedAt: new Date().toISOString() };
+  }
+
+  async setGpsFreshness(organisationId: string, id: string, minutes: number | null): Promise<number | null> {
+    const m = minutes === null ? null : Math.max(1, Math.min(1440, Math.round(minutes)));
+    await this.database.query(
+      `UPDATE geoventra.vehicles SET gps_freshness_minutes = $3, updated_at = now() WHERE organisation_id = $1 AND id = $2`,
+      [organisationId, id, m],
+    );
+    return m;
   }
 
   async create(organisationId: string, input: any): Promise<VehicleSummary> {

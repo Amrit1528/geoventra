@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/auth/jwt-auth.guard.js';
 import { RequirePermissions } from '../common/auth/permissions.decorator.js';
 import { CurrentUser } from '../common/auth/current-user.decorator.js';
@@ -45,6 +45,15 @@ export class VehiclesController {
   @Delete(':id')
   remove(@Req() req: any, @Param('id') id: string) {
     return this.vehiclesService.remove(req.user.organisationId, id);
+  }
+
+  @Put(':id/gps-freshness')
+  @RequirePermissions('vehicles.write')
+  setGpsFreshness(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    const raw = body?.minutes;
+    const minutes = raw === null || raw === undefined || raw === '' ? null : Number(raw);
+    if (minutes !== null && (!Number.isFinite(minutes) || minutes < 1 || minutes > 1440)) throw new Error('minutes must be between 1 and 1440');
+    return this.vehiclesService.setGpsFreshness(req.user.organisationId, id, minutes);
   }
 
   @Post(':id/assign-driver')

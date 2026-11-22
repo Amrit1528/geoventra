@@ -5,11 +5,12 @@
 import { Module } from '@nestjs/common';
 import { DevicesController } from './device.controller.js';
 import { DevicesService } from './device.service.js';
+import { DeviceOfflineScheduler } from './device-offline.scheduler.js';
 import { AdminService } from '../admin/admin.service.js';
 
 @Module({
   controllers: [DevicesController],
-  providers: [DevicesService, AdminService],
+  providers: [DevicesService, AdminService, DeviceOfflineScheduler],
   exports: [DevicesService],
 })
 export class DevicesModule {}

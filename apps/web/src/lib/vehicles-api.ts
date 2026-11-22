@@ -96,3 +96,8 @@ export async function deleteVehicle(id: string): Promise<void> {
 export async function assignDriverToVehicle(vehicleId: string, driverId: string): Promise<VehicleSummary> {
   return apiRequest<VehicleSummary>(`/vehicles/${vehicleId}/assign-driver`, { method: 'POST', body: { driverId } });
 }
+
+
+export async function updateVehicleGpsFreshness(id: string, minutes: number | null): Promise<number | null> {
+  return apiRequest<number | null>(`/vehicles/${encodeURIComponent(id)}/gps-freshness`, { method: 'PUT', body: { minutes } });
+}

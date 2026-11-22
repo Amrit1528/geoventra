@@ -9,13 +9,15 @@
 'use client';
 
 import type { ReactElement } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import Link from 'next/link';
 import { X, Gauge, Zap, Navigation, MapPin, Clock, Satellite, BatteryMedium, Radio, Route, User } from 'lucide-react';
 import { Badge, badgeVariantForSeverity, Button, cn, Card, CardContent } from '@geoventra/ui';
 import type { LivePosition } from '@geoventra/contracts';
 import { fetchTrips } from '@/lib/track-api';
-import { fetchVehicleFullProfile } from '@/lib/vehicles-api';
+import { fetchVehicleFullProfile, updateVehicleGpsFreshness } from '@/lib/vehicles-api';
+import { fetchGpsFreshness } from '@/lib/track-api';
 import { formatDateTime, formatRelativeTime, formatMetricValue, formatSpeedKph } from '@/lib/format';
 
 export interface VehicleDrawerProps {
@@ -53,6 +55,15 @@ export function VehicleDrawer({ vehicle, onClose, className }: VehicleDrawerProp
     if (days <= 30) return 'Expiring soon';
     return 'Active';
   }
+
+  const qc = useQueryClient();
+  const orgFreshnessQ = useQuery({ queryKey: ['gps-freshness'], queryFn: fetchGpsFreshness });
+  const [gpsInput, setGpsInput] = useState<string>('');
+  const saveGpsFreshness = useMutation({
+    mutationFn: (minutes: number | null) => updateVehicleGpsFreshness(vehicle.vehicleId, minutes),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['vehicle-full-profile', vehicle.vehicleId] }); },
+  });
+  const effectiveFreshness = (profileQuery.data?.vehicle?.gpsFreshnessMinutes ?? null) ?? (orgFreshnessQ.data as any)?.minutes ?? 15;
 
   return (
     <aside
@@ -170,6 +181,48 @@ export function VehicleDrawer({ vehicle, onClose, className }: VehicleDrawerProp
                 <p className="text-[var(--text-muted)]">Trips: {profileQuery.data?.tripsSummary?.trips ?? '—'} · Distance: {Number(profileQuery.data?.tripsSummary?.distanceKm ?? 0).toFixed(1)} km</p>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Journey summary */}
+        <Card className="mt-3">
+          <CardContent className="py-3">
+            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              <Route size={13} aria-hidden="true" /> Journey
+            </p>
+            {tripsQuery.isLoading ? (
+              <p className="mt-1 text-xs text-[var(--text-muted)]">Loading…</p>
+            ) : (
+              <div className="mt-1 space-y-1 text-xs">
+                {(() => {
+                  const completed = trips.filter((t: any) => t.status === 'completed');
+                  const active = trips.find((t: any) => t.status === 'active');
+                  const last = completed.length ? completed[0] : null;
+                  return (
+                    <>
+                      <p className="text-[var(--text-primary)]">Last completed trip: <b>{last ? `${last.startLabel ?? 'Origin'} → ${last.endLabel ?? 'Destination'} (${last.distanceKm} km)` : 'No completed trip available'}</b></p>
+                      <p className="text-[var(--text-muted)]">Current trip: <b>{active ? `started ${active.startedAt} (${active.distanceKm} km)` : 'None'}</b></p>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* GPS freshness */}
+        <Card className="mt-3">
+          <CardContent className="py-3">
+            <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">GPS freshness threshold</p>
+            <div className="mt-1 space-y-1 text-xs">
+              <p className="text-[var(--text-primary)]">Override: <b>{profileQuery.data?.vehicle?.gpsFreshnessMinutes ?? 'Inherit organization'}</b></p>
+              <p className="text-[var(--text-muted)]">Organization default: <b>{(orgFreshnessQ.data as any)?.minutes ?? 15} min</b></p>
+              <p className="text-[var(--text-muted)]">Effective: <b>{effectiveFreshness} min</b></p>
+              <div className="flex items-center gap-2">
+                <input value={gpsInput} onChange={(e) => setGpsInput(e.target.value)} placeholder="minutes or blank" className="h-8 w-24 rounded-lg border border-[var(--border)] bg-[var(--bg-app)] px-2 text-xs" />
+                <button type="button" className="rounded-lg bg-teal-600 px-2 py-1 text-xs text-white" onClick={() => { const n = gpsInput.trim() === '' ? null : Number(gpsInput); if (gpsInput.trim() === '' || (n !== null && Number.isFinite(n) && n >= 1 && n <= 1440)) saveGpsFreshness.mutate(n); }}>Save</button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

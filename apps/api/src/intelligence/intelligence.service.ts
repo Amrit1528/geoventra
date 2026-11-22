@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { DatabaseService } from '../common/infrastructure/database.service.js';
+import { TpmsService } from '../tpms/tpms.service.js';
+import { EngineDiagnosticsService } from '../engine-diagnostics/engine-diagnostics.service.js';
+import { TripsService } from '../trips/trips.service.js';
+import { TrackingService } from '../tracking/tracking.service.js';
 
 function num(v: any): number {
   const n = Number(v ?? 0);
@@ -13,7 +17,7 @@ function clamp(n: number, min = 0, max = 100): number {
 @Injectable()
 export class IntelligenceService {
   private cache = new Map<string, { value: any; expires: number }>();
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly tpms: TpmsService, private readonly engine: EngineDiagnosticsService, private readonly tripsService: TripsService, private readonly tracking: TrackingService) {}
 
   private cacheGet(key: string) {
     const hit = this.cache.get(key);
@@ -664,7 +668,7 @@ export class IntelligenceService {
       const trips = await this.trips(organisationId, {});
       answer = `Trips: ${trips.trips} covering ${trips.distanceKm} km (avg speed ${trips.averageSpeedKph} km/h).`;
       data.trips = trips;
-    } else if (q.includes('vehicle') && (q.includes('detail') || q.includes('info') || vehicleId)) {
+    } else if (q.includes('vehicle') && (q.includes('detail') || q.includes('info') || q.includes('status'))) {
       intent = 'vehicle_details';
       if (vehicleId) {
         const tracking = await this.safe(() => this.db.queryOne<any>(
@@ -678,6 +682,135 @@ export class IntelligenceService {
         answer = `Fleet has ${fleet.totalVehicles} vehicles (${fleet.activeVehicles} active, ${fleet.offline} offline).`;
         data.fleet = fleet;
       }
+    } else if (q.includes('engine') || q.includes('fault') || q.includes('dtc') || q.includes('coolant') || q.includes('rpm') || q.includes('check engine')) {
+      intent = 'engine';
+      const vehicles = await this.safe(() => this.engine.listVehicles(organisationId), []);
+      const withFaults = vehicles.filter((v: any) => (v.activeDtcCount ?? 0) > 0 || v.milOn);
+      const highTemp = vehicles.filter((v: any) => v.healthStatus === 'critical' || v.healthStatus === 'warning');
+      if (vehicles.length === 0) {
+        answer = 'Engine diagnostics are not currently available for this fleet.';
+      } else if (q.includes('fault') || q.includes('dtc') || q.includes('check engine')) {
+        answer = withFaults.length === 0
+          ? 'No active engine faults or check-engine warnings.'
+          : `${withFaults.length} vehicle${withFaults.length === 1 ? '' : 's'} with engine faults: ${withFaults.map((v: any) => `${v.registrationNumber} (${v.activeDtcCount} DTC${v.milOn ? ', MIL on' : ''})`).join(', ')}.`;
+      } else if (q.includes('coolant') || q.includes('temperature')) {
+        answer = highTemp.length === 0
+          ? 'No vehicles with critical/warning engine health.'
+          : `${highTemp.length} vehicle${highTemp.length === 1 ? '' : 's'} with engine health warnings: ${highTemp.map((v: any) => `${v.registrationNumber} (${v.healthStatus})`).join(', ')}.`;
+      } else {
+        answer = `Engine diagnostics: ${vehicles.length} monitored vehicles, ${withFaults.length} with active faults, ${vehicles.filter((v: any) => v.milOn).length} with MIL on.`;
+      }
+      data.engineVehicles = vehicles;
+      data.faultVehicles = withFaults;
+    } else if (q.includes('fuel') || q.includes('consumption') || q.includes('refuel') || q.includes('tank') || q.includes('mileage')) {
+      intent = 'fuel';
+      const fuel = await this.safe(() => this.fuel(organisationId, {}), null);
+      if (!fuel) {
+        answer = 'Fuel intelligence is not currently available for this fleet.';
+      } else {
+        const lowFuel = (fuel.vehicleRanking ?? []).filter((v: any) => v.flag === 'excessive_consumption');
+        if (q.includes('low fuel')) {
+          answer = 'Fuel level telemetry is not available in the current fuel module; consumption and refill data are available instead.';
+        } else if (q.includes('excessive') || q.includes('suspicious') || q.includes('drop')) {
+          answer = lowFuel.length === 0
+            ? 'No vehicles show excessive fuel consumption in the selected period.'
+            : `${lowFuel.length} vehicle${lowFuel.length === 1 ? '' : 's'} show excessive consumption: ${lowFuel.map((v: any) => v.registrationNumber).join(', ')}.`;
+        } else if (q.includes('consumption') || q.includes('efficiency')) {
+          answer = `Fleet fuel: ${fuel.totalLitres} litres over ${fuel.totalDistanceKm} km (avg ${fuel.mileageKmPerL} km/l, ${fuel.refuelEvents} refuel events).`;
+        } else {
+          answer = `Fuel intelligence: ${fuel.totalLitres} litres consumed, ${fuel.mileageKmPerL} km/l average mileage, ${fuel.refuelEvents} refuel events.`;
+        }
+        data.fuel = fuel;
+        data.excessiveConsumption = lowFuel;
+      }
+    } else if (q.includes('tpms') || q.includes('tyre') || q.includes('tire') || q.includes('pressure')) {
+      intent = 'tpms';
+      const dashboard = await this.safe(() => this.tpms.getDashboard(organisationId), null);
+      if (!dashboard || (dashboard.monitoredVehicles ?? 0) === 0) {
+        answer = 'TPMS telemetry is not currently available for this fleet. No tyre pressure or temperature readings have been configured or received.';
+        data.tpms = null;
+      } else {
+        const isLow = q.includes('low');
+        const isHighTemp = q.includes('temperature') || q.includes('hot');
+        const isHighPressure = q.includes('high pressure') || q.includes('over pressure') || q.includes('overpressure');
+        const isIssues = q.includes('issue') || q.includes('sensor') || q.includes('malfunction') || q.includes('unavailable');
+        let tyres = dashboard.vehicles.flatMap((v: any) =>
+          (v.tyres ?? []).map((t: any) => ({ vehicleId: v.vehicleId, registrationNumber: v.registrationNumber, ...t })),
+        );
+        if (isLow) tyres = tyres.filter((t: any) => t.status === 'warning' || t.status === 'critical');
+        if (isHighTemp) tyres = tyres.filter((t: any) => (t.reasons ?? []).some((r: string) => /temp/i.test(r)));
+        if (isHighPressure) tyres = tyres.filter((t: any) => (t.reasons ?? []).some((r: string) => /pressure/i.test(r) && /high/i.test(r)));
+        if (isIssues) tyres = tyres.filter((t: any) => t.status === 'offline' || t.status === 'unknown');
+        if (q === 'tpms' || q === 'what is tpms' || q.includes('explain')) {
+          answer = `TPMS (Tyre Pressure Monitoring System) monitors tyre pressure and temperature. Fleet status: ${dashboard.monitoredVehicles} monitored vehicles, ${dashboard.monitoredTyres} tyres, ${dashboard.criticalTyres} critical, ${dashboard.warningTyres} warning, ${dashboard.offlineSensors} offline sensors.`;
+        } else if (tyres.length === 0) {
+          answer = 'No TPMS readings match the requested condition.';
+        } else {
+          answer = `${tyres.length} tyre${tyres.length === 1 ? '' : 's'} match: ${tyres.slice(0, 8).map((t: any) => `${t.registrationNumber ?? t.vehicleId} ${t.wheelPosition} (${t.latest?.pressureKpa ?? '—'} kPa, ${t.latest?.temperatureC ?? '—'} °C)`).join(', ')}.`;
+        }
+        data.tpms = dashboard;
+        data.tyres = tyres;
+      }
+    } else if (q.includes('nearest')) {
+      intent = 'nearest_vehicles';
+      if (!vehicleId) {
+        answer = 'Please select a vehicle to find nearby vehicles.';
+      } else {
+        const result = await this.safe(() => this.tracking.getNearestVehicles(organisationId, vehicleId, { limit: 5 }), null);
+        if (!result) {
+          answer = 'Unable to calculate nearby vehicles for the selected vehicle.';
+        } else {
+          answer = `${result.vehicles.length} nearest vehicle${result.vehicles.length === 1 ? '' : 's'} to reference: ${result.vehicles.map((v: any) => `${v.registrationNumber} (${v.distanceKm.toFixed(2)} km)`).join(', ')}.`;
+          data.nearest = result;
+        }
+      }
+    } else if (q.includes('last trip') || q.includes('last completed trip')) {
+      intent = 'last_trip';
+      if (!vehicleId) {
+        answer = 'Please select a vehicle to view its last trip.';
+      } else {
+        const trip = await this.tripsService.latestCompleted(organisationId, vehicleId);
+        if (!trip) answer = 'No completed trip available.';
+        else answer = `Last trip for vehicle: ${trip.startLabel ?? 'origin'} to ${trip.endLabel ?? 'destination'}, ${trip.distanceKm} km, ${trip.durationSeconds} s, driver ${trip.driverName ?? 'unknown'}.`;
+        data.lastTrip = trip;
+      }
+    } else if (q.includes('current trip') || q.includes('on a trip')) {
+      intent = 'current_trip';
+      if (q.includes('vehicles currently on a trip') || q.includes('show vehicles currently')) {
+        const active = await this.safe(() => this.db.query<any>(
+          `SELECT t.id, t.vehicle_id AS "vehicleId", v.registration_number AS "registrationNumber", t.started_at AS "startedAt"
+             FROM geoventra.trips t JOIN geoventra.vehicles v ON v.id=t.vehicle_id
+            WHERE t.organisation_id=$1 AND t.status='active'`, [organisationId]), []);
+        answer = active.length === 0 ? 'No vehicles are currently on a trip.' : `${active.length} vehicle${active.length === 1 ? '' : 's'} currently on a trip.`;
+        data.activeTrips = active;
+      } else if (!vehicleId) {
+        answer = 'Please select a vehicle to view its current trip.';
+      } else {
+        const trip = await this.tripsService.currentTrip(organisationId, vehicleId);
+        if (!trip) answer = 'No current trip available.';
+        else answer = `Current trip started ${trip.startedAt}, ${trip.distanceKm} km so far.`;
+        data.currentTrip = trip;
+      }
+    } else if (q.includes('last known location') || q.includes('where is')) {
+      intent = 'vehicle_location';
+      if (!vehicleId) answer = 'Please select a vehicle.';
+      else {
+        const loc = await this.safe(() => this.db.queryOne<any>(
+          `SELECT latitude, longitude, last_recorded_at AS "lastRecordedAt", speed_kph AS "speedKph"
+             FROM geoventra.vehicle_live_status WHERE organisation_id=$1 AND vehicle_id=$2`, [organisationId, vehicleId]), null);
+        answer = loc ? `Last known location: ${loc.latitude}, ${loc.longitude} at ${loc.lastRecordedAt ? new Date(loc.lastRecordedAt).toLocaleString() : 'unknown'}.` : 'No location available.';
+        data.location = loc;
+      }
+    } else if (q.includes('theft') || q.includes('unauthorized') || q.includes('suspicious')) {
+      intent = 'theft_alerts';
+      const alerts = await this.safe(() => this.db.query<any>(
+        `SELECT id, vehicle_id AS "vehicleId", (SELECT registration_number FROM geoventra.vehicles v WHERE v.id=alerts.vehicle_id) AS "registrationNumber",
+                type, severity, title, message, occurred_at AS "occurredAt", status
+           FROM geoventra.alerts
+          WHERE organisation_id=$1 AND (type ILIKE '%theft%' OR type ILIKE '%unauthorized%' OR type ILIKE '%tamper%' OR severity='critical')
+          ORDER BY occurred_at DESC LIMIT 20`, [organisationId]), []);
+      answer = alerts.length === 0 ? 'No theft or high-risk alerts found.' : `${alerts.length} theft/high-risk alert${alerts.length === 1 ? '' : 's'} found.`;
+      data.alerts = alerts;
     } else if (q.includes('anomal')) {
       intent = 'anomalies';
       const a = await this.anomalies(organisationId, {});

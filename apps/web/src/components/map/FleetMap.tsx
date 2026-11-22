@@ -33,6 +33,7 @@ export interface FleetMapProps {
   positions: LivePosition[];
   geofences?: GeofenceSummary[];
   selectedId: string | null;
+  highlightedIds?: string[];
   onSelect: (vehicleId: string) => void;
   /** Increment to trigger a fit-to-fleet animation. */
   fitSignal?: number;
@@ -98,6 +99,7 @@ export function FleetMap({
   positions,
   geofences = [],
   selectedId,
+  highlightedIds = [],
   onSelect,
   fitSignal,
   fitSelectedSignal,
@@ -450,6 +452,7 @@ export function FleetMap({
         return;
       }
       const marker = new maplibregl.Marker({ element: create(), anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
+      try { marker.getElement().style.transition = 'transform 1s linear'; } catch { /* noop */ }
       markers.set(key, marker);
     };
 
@@ -488,7 +491,8 @@ export function FleetMap({
       upsert(props.vehicleId, lng, lat, () => {
         const el = document.createElement('button');
         el.type = 'button';
-        el.className = vehicleMarkerClass(props.status, isSelected, hasAlerts);
+        const isHighlighted = (highlightedIds ?? []).includes(props.vehicleId);
+        el.className = vehicleMarkerClass(props.status, isSelected, hasAlerts) + (isHighlighted ? ' vehicle-marker--highlighted' : '');
         el.dataset.testid = 'vehicle-marker';
         el.dataset.vehicleId = props.vehicleId;
         el.innerHTML = markerInnerHtml(props.registrationNumber, props.status, props.heading, props.speedKph, isSelected, hasAlerts, labelVisible);
@@ -507,7 +511,8 @@ export function FleetMap({
         el.addEventListener('blur', () => popup?.remove());
         return el;
       }, (el) => {
-        el.className = vehicleMarkerClass(props.status, isSelected, hasAlerts);
+        const isHighlighted = (highlightedIds ?? []).includes(props.vehicleId);
+        el.className = vehicleMarkerClass(props.status, isSelected, hasAlerts) + (isHighlighted ? ' vehicle-marker--highlighted' : '');
         el.innerHTML = markerInnerHtml(props.registrationNumber, props.status, props.heading, props.speedKph, isSelected, hasAlerts, labelVisible);
         const p = positionById.get(props.vehicleId) ?? full;
         const aria = `${props.registrationNumber} — ${props.status}${hasAlerts ? `, ${props.openAlertCount} open alerts` : ''}`;

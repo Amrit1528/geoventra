@@ -67,6 +67,10 @@ code,
   animation: marker-pulse 1.6s ease-in-out infinite;
 }
 
+.vehicle-marker--highlighted .vehicle-marker__icon {
+  box-shadow: 0 0 0 3px #facc15, 0 0 12px #facc15;
+}
+
 .vehicle-marker--offline .vehicle-marker__icon {
   opacity: 0.6;
 }

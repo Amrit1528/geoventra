@@ -249,3 +249,12 @@ export function updateNotificationPreferences(preferences: NotificationPreferenc
     body: preferences,
   });
 }
+
+
+export function fetchGpsFreshness(_?: any): Promise<{ minutes: number; defaultMinutes: number }> {
+  return apiRequest<{ minutes: number; defaultMinutes: number }>('/tracking/settings/gps-freshness');
+}
+
+export function updateGpsFreshness(minutes: number): Promise<{ minutes: number }> {
+  return apiRequest<{ minutes: number }>('/tracking/settings/gps-freshness', { method: 'PUT', body: { minutes } });
+}

@@ -90,7 +90,7 @@ export class DevicesService {
     const countResult = await this.database.query(countSql, params);
     const total = countResult.length > 0 ? (countResult[0] as any)?.total ?? 0 : 0;
 
-    const dataSql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
+    const dataSql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, last_seen_at AS lastSeenAt, offline_since AS offlineSince, last_status_change_at AS lastStatusChangeAt, connectivity_status AS connectivityStatus, offline_reason AS offlineReason, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE ${where.join(' AND ')} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(pageSize, (page - 1) * pageSize);
 
     const rows = await this.database.query(dataSql, params);
@@ -98,14 +98,14 @@ export class DevicesService {
   }
 
   async getDevice(organisationId: string, deviceId: string) {
-    const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE organisation_id = $1 AND id = $2`;
+    const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, last_seen_at AS lastSeenAt, offline_since AS offlineSince, last_status_change_at AS lastStatusChangeAt, connectivity_status AS connectivityStatus, offline_reason AS offlineReason, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE organisation_id = $1 AND id = $2`;
     const row = await this.database.queryOne<any>(sql, [organisationId, deviceId]);
     if (!row) throw new NotFoundException('Device not found');
     return this.enrichDevice(row);
   }
 
   async getDeviceBySerial(organisationId: string, deviceId: string) {
-    const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE organisation_id = $1 AND device_id = $2`;
+    const sql = `SELECT id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, last_seen_at AS lastSeenAt, offline_since AS offlineSince, last_status_change_at AS lastStatusChangeAt, connectivity_status AS connectivityStatus, offline_reason AS offlineReason, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag" FROM geoventra.devices WHERE organisation_id = $1 AND device_id = $2`;
     const row = await this.database.queryOne<any>(sql, [organisationId, deviceId]);
     if (!row) throw new NotFoundException('Device not found');
     return this.enrichDevice(row);
@@ -146,7 +146,7 @@ export class DevicesService {
     const row = await this.database.queryOne<any>(
       `INSERT INTO geoventra.devices (organisation_id, device_id, device_type, imei, model, firmware_version, provider, status, connection_method, connection_config, integration_method, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, active_flag, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19, now(), now())
-       RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag"`,
+       RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, last_seen_at AS lastSeenAt, offline_since AS offlineSince, last_status_change_at AS lastStatusChangeAt, connectivity_status AS connectivityStatus, offline_reason AS offlineReason, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag"`,
       [
         organisationId, input.deviceId, input.deviceType, input.imei || null, input.model,
         input.firmwareVersion || '1.0.0', input.provider, input.status || 'unassigned',
@@ -189,7 +189,7 @@ export class DevicesService {
     if (input.metadata !== undefined) set('metadata', input.metadata);
 
     params.push(organisationId, deviceId);
-    const sql = `UPDATE geoventra.devices SET ${fields.join(', ')} WHERE organisation_id = $${i} AND id = $${i + 1} RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag"`;
+    const sql = `UPDATE geoventra.devices SET ${fields.join(', ')} WHERE organisation_id = $${i} AND id = $${i + 1} RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, last_seen_at AS lastSeenAt, offline_since AS offlineSince, last_status_change_at AS lastStatusChangeAt, connectivity_status AS connectivityStatus, offline_reason AS offlineReason, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag"`;
     const row = await this.database.queryOne<any>(sql, params);
     if (!row) throw new NotFoundException('Device not found');
     return this.enrichDevice(row);
@@ -199,7 +199,7 @@ export class DevicesService {
     const existing = await this.database.queryOne<any>('SELECT id, active_flag FROM geoventra.devices WHERE organisation_id = $1 AND id = $2', [organisationId, deviceId]);
     if (!existing) throw new NotFoundException('Device not found');
     const previous = existing.active_flag;
-    const row = await this.database.queryOne<any>('UPDATE geoventra.devices SET active_flag = $3, updated_at = now() WHERE organisation_id = $1 AND id = $2 RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag"', [organisationId, deviceId, activeFlag]);
+    const row = await this.database.queryOne<any>('UPDATE geoventra.devices SET active_flag = $3, updated_at = now() WHERE organisation_id = $1 AND id = $2 RETURNING id, device_id AS deviceId, device_type AS deviceType, imei, model, firmware_version AS firmwareVersion, provider, status, last_communication_at AS lastCommunicationAt, last_seen_at AS lastSeenAt, offline_since AS offlineSince, last_status_change_at AS lastStatusChangeAt, connectivity_status AS connectivityStatus, offline_reason AS offlineReason, organisation_id AS organisationId, serial_number, mac_address, installation_date, installed_at_location, warranty_expires_at, last_firmware_at, metadata, manufacturer_id, model_id, integration_method, config, active_flag AS "activeFlag"', [organisationId, deviceId, activeFlag]);
     if (!row) throw new NotFoundException('Device not found');
     try { await this.adminService.createAuditLog(organisationId, changedBy ?? null, activeFlag ? 'DEVICE_ENABLED' : 'DEVICE_DISABLED', 'device', deviceId, { previousActiveFlag: previous, newActiveFlag: activeFlag, reason: reason ?? null }); } catch {}
     return this.enrichDevice(row);

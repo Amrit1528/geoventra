@@ -80,6 +80,11 @@ export function AiCopilot({ vehicleId }: { vehicleId?: string | null }): ReactEl
                     <div key={i} className={cn('rounded-lg px-3 py-2 text-xs', m.role === 'user' ? 'ml-6 bg-teal-600 text-white' : 'mr-6 bg-[var(--bg-surface)] text-[var(--text-primary)]')}>
                       <div>{m.content}</div>
                       {m.role === 'assistant' && m.data ? <CopilotResults data={m.data} intent={m.intent} /> : null}
+                      {m.role === 'assistant' && m.data && collectIds(m.data, m.intent).length > 1 ? (
+                        <a href={`/tracking?vehicles=${collectIds(m.data, m.intent).join(',')}`} className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:underline dark:text-teal-300">
+                          Highlight all {collectIds(m.data, m.intent).length} on live map
+                        </a>
+                      ) : null}
                     </div>
                   ))
                 )}
@@ -119,6 +124,14 @@ export function AiCopilot({ vehicleId }: { vehicleId?: string | null }): ReactEl
   );
 }
 
+
+function collectIds(data: any, intent?: string): string[] {
+  if (intent === 'offline_vehicles') return (data.offlineVehicles ?? []).map((v: any) => v.id);
+  if (intent === 'idle_vehicles') return (data.idleVehicles ?? []).map((v: any) => v.id);
+  if (intent === 'overspeeding') return (data.overspeedingVehicles ?? []).map((v: any) => v.id);
+  if (intent === 'maintenance') return (data.predictions ?? []).map((p: any) => p.vehicleId).filter(Boolean);
+  return [];
+}
 
 function CopilotResults({ data, intent }: { data: any; intent?: string }): ReactElement | null {
   if (intent === 'offline_vehicles' && Array.isArray(data.offlineVehicles)) {
@@ -186,6 +199,120 @@ function CopilotResults({ data, intent }: { data: any; intent?: string }): React
       </div>
     );
   }
+  if (intent === 'tpms') {
+    if (!data?.tpms) {
+      return <div className="mt-2 text-[11px] text-[var(--text-muted)]">TPMS telemetry is not currently available for this fleet.</div>;
+    }
+    const dashboard = data.tpms;
+    const tyres = Array.isArray(data.tyres) ? data.tyres : [];
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="text-[11px] text-[var(--text-muted)]">
+          Monitored vehicles: {dashboard.monitoredVehicles} · Tyres: {dashboard.monitoredTyres} · Critical: {dashboard.criticalTyres} · Warning: {dashboard.warningTyres} · Offline sensors: {dashboard.offlineSensors}
+        </div>
+        {tyres.slice(0, 8).map((t: any, i: number) => (
+          <a key={i} href={`/tpms/${encodeURIComponent(t.vehicleId)}`} className="block rounded border border-[var(--border)] bg-[var(--bg-app)] px-2 py-1 text-[11px] hover:border-teal-300">
+            <b>{t.registrationNumber ?? t.vehicleId}</b> · {t.wheelPosition} · {t.latest?.pressureKpa ?? '—'} kPa · {t.latest?.temperatureC ?? '—'} °C · {t.status}
+          </a>
+        ))}
+        {tyres.length === 0 ? <div className="text-[11px] text-[var(--text-muted)]">No matching TPMS readings.</div> : null}
+      </div>
+    );
+  }
+
+  if (intent === 'engine') {
+    const vehicles = Array.isArray(data?.engineVehicles) ? data.engineVehicles : [];
+    const faults = Array.isArray(data?.faultVehicles) ? data.faultVehicles : [];
+    if (vehicles.length === 0) return <div className="mt-2 text-[11px] text-[var(--text-muted)]">Engine diagnostics are not currently available.</div>;
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="text-[11px] text-[var(--text-muted)]">
+          Monitored: {vehicles.length} · With faults: {faults.length} · MIL on: {vehicles.filter((v: any) => v.milOn).length}
+        </div>
+        {faults.slice(0, 8).map((v: any) => (
+          <a key={v.vehicleId} href={`/engine/${encodeURIComponent(v.vehicleId)}`} className="block rounded border border-[var(--border)] bg-[var(--bg-app)] px-2 py-1 text-[11px] hover:border-teal-300">
+            <b>{v.registrationNumber}</b> · {v.activeDtcCount} DTC{v.milOn ? ' · MIL on' : ''} · {v.healthStatus}
+          </a>
+        ))}
+        {faults.length === 0 ? <div className="text-[11px] text-[var(--text-muted)]">No active engine faults.</div> : null}
+      </div>
+    );
+  }
+
+  if (intent === 'fuel') {
+    const fuel = data?.fuel;
+    if (!fuel) return <div className="mt-2 text-[11px] text-[var(--text-muted)]">Fuel intelligence is not currently available.</div>;
+    const excessive = Array.isArray(data?.excessiveConsumption) ? data.excessiveConsumption : [];
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="text-[11px] text-[var(--text-muted)]">
+          {fuel.totalLitres} L · {fuel.totalDistanceKm} km · {fuel.mileageKmPerL} km/L · {fuel.refuelEvents} refuels
+        </div>
+        {excessive.slice(0, 8).map((v: any) => (
+          <a key={v.vehicleId} href={`/fuel/${encodeURIComponent(v.vehicleId)}`} className="block rounded border border-[var(--border)] bg-[var(--bg-app)] px-2 py-1 text-[11px] hover:border-teal-300">
+            <b>{v.registrationNumber}</b> · {v.mileageKmPerL} km/L · excessive consumption
+          </a>
+        ))}
+        {excessive.length === 0 ? <div className="text-[11px] text-[var(--text-muted)]">No excessive consumption detected.</div> : null}
+      </div>
+    );
+  }
+
+  if (intent === 'nearest_vehicles' && data?.nearest) {
+    const result = data.nearest;
+    return (
+      <div className="mt-2 space-y-1">
+        {result.vehicles.map((v: any) => (
+          <a key={v.vehicleId} href={`/tracking?vehicle=${encodeURIComponent(v.vehicleId)}`} className="block rounded border border-[var(--border)] bg-[var(--bg-app)] px-2 py-1 text-[11px] hover:border-teal-300">
+            <b>{v.registrationNumber}</b> · straight-line {Number(v.straightLineDistanceKm ?? v.distanceKm).toFixed(2)} km
+            {v.roadDistanceKm != null ? ` · road ${v.roadDistanceKm} km` : ' · road distance unavailable'}
+            {v.etaMinutes != null ? ` · ETA ${v.etaMinutes} min` : ''}
+            {' · '}{new Date(v.lastRecordedAt).toLocaleString()}
+          </a>
+        ))}
+        {result.vehicles.length === 0 ? <div className="text-[11px] text-[var(--text-muted)]">No nearby vehicles with fresh GPS.</div> : null}
+      </div>
+    );
+  }
+
+  if (intent === 'last_trip' && data?.lastTrip) {
+    const t = data.lastTrip;
+    return (
+      <div className="mt-2 text-[11px] text-[var(--text-muted)]">
+        {t.startLabel ?? 'Origin'} → {t.endLabel ?? 'Destination'} · {t.distanceKm} km · {t.durationSeconds}s · {t.driverName ?? 'unknown driver'}
+      </div>
+    );
+  }
+
+  if (intent === 'current_trip') {
+    if (data?.activeTrips) {
+      const active = data.activeTrips;
+      return <div className="mt-2 text-[11px] text-[var(--text-muted)]">{active.length} active trip{active.length === 1 ? '' : 's'}.</div>;
+    }
+    const t = data?.currentTrip;
+    if (!t) return <div className="mt-2 text-[11px] text-[var(--text-muted)]">No current trip available.</div>;
+    return <div className="mt-2 text-[11px] text-[var(--text-muted)]">Started {t.startedAt} · {t.distanceKm} km · {t.driverName ?? 'unknown driver'}</div>;
+  }
+
+  if (intent === 'vehicle_location' && data?.location) {
+    const loc = data.location;
+    return <div className="mt-2 text-[11px] text-[var(--text-muted)]">{loc.latitude}, {loc.longitude} · {loc.lastRecordedAt ? new Date(loc.lastRecordedAt).toLocaleString() : 'unknown'}</div>;
+  }
+
+  if (intent === 'theft_alerts') {
+    const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
+    if (alerts.length === 0) return <div className="mt-2 text-[11px] text-[var(--text-muted)]">No theft or high-risk alerts found.</div>;
+    return (
+      <div className="mt-2 space-y-1">
+        {alerts.slice(0, 8).map((a: any) => (
+          <a key={a.id} href={a.vehicleId ? `/tracking?vehicle=${encodeURIComponent(a.vehicleId)}` : '/alerts'} className="block rounded border border-[var(--border)] bg-[var(--bg-app)] px-2 py-1 text-[11px] hover:border-teal-300">
+            <b>{a.registrationNumber ?? a.vehicleId}</b> · {a.type} · {a.severity} · {a.occurredAt ? new Date(a.occurredAt).toLocaleString() : ''}
+          </a>
+        ))}
+      </div>
+    );
+  }
+
   if (intent === 'fleet_summary' && data.fleet) {
     return (
       <div className="mt-2 grid grid-cols-2 gap-1 text-[11px]">
@@ -195,6 +322,16 @@ function CopilotResults({ data, intent }: { data: any; intent?: string }): React
         <div>Idle: <b>{data.fleet.idle}</b></div>
         <div>Offline: <b>{data.fleet.offline}</b></div>
         <div>Disabled: <b>{data.fleet.disabledVehicles}</b></div>
+      </div>
+    );
+  }
+  const ids = collectIds(data, intent);
+  if (ids.length > 1) {
+    return (
+      <div className="mt-2">
+        <a href={`/tracking?vehicles=${ids.join(',')}`} className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:underline dark:text-teal-300">
+          Highlight all {ids.length} on live map
+        </a>
       </div>
     );
   }

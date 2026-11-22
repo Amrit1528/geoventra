@@ -15,7 +15,7 @@
  *   POST /api/v1/tracking/ingest/http
  */
 
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Put, Query, Req, Res } from "@nestjs/common";
 import type { Response } from 'express';
 import { z } from 'zod';
 import {
@@ -61,6 +61,32 @@ export class TrackingController {
   @RequirePermissions('tracking.read')
   async snapshot(@CurrentUser() user: AuthenticatedUser): Promise<TrackingSnapshot> {
     return this.trackingService.snapshot(user.organisationId);
+  }
+
+  @Get('vehicles/:vehicleId/nearby')
+  @RequirePermissions('vehicles.read')
+  async nearby(@Req() req: any, @Param('vehicleId') vehicleId: string, @Query() query: any) {
+    const limit = query?.limit ? Number(query.limit) : 5;
+    const maxAgeMinutes = query?.maxAgeMinutes ? Number(query.maxAgeMinutes) : 15;
+    return this.trackingService.getNearestVehicles(req.user.organisationId, vehicleId, { limit, maxAgeMinutes });
+  }
+
+  @Get('settings/gps-freshness')
+  @RequirePermissions('vehicles.read')
+  async getGpsFreshness(@Req() req: any) {
+    const minutes = await this.trackingService.getGpsFreshnessMinutes(req.user.organisationId);
+    return { minutes, defaultMinutes: 15 };
+  }
+
+  @Put('settings/gps-freshness')
+  @RequirePermissions('vehicles.write')
+  async setGpsFreshness(@Req() req: any, @Body() body: any) {
+    const minutes = Number(body?.minutes);
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 1440) {
+      throw new Error('minutes must be between 1 and 1440');
+    }
+    const saved = await this.trackingService.setGpsFreshnessMinutes(req.user.organisationId, minutes);
+    return { minutes: saved };
   }
 
   /** Full tracking detail for one vehicle (identity, live position, device, driver, alerts). */

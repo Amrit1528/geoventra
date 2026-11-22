@@ -24,6 +24,7 @@ import { DatabaseService } from '../common/infrastructure/database.service.js';
 import { TrackingEventBus } from './tracking-events.service.js';
 import { TripsService } from '../trips/trips.service.js';
 import { GeofencesService } from '../geofences/geofences.service.js';
+import { RoutingService } from './routing.service.js';
 
 export interface IngestResult {
   accepted: number;
@@ -67,6 +68,7 @@ export class TrackingService {
     private readonly eventBus: TrackingEventBus,
     private readonly tripsService: TripsService,
     private readonly geofencesService: GeofencesService,
+    private readonly routing: RoutingService,
   ) {}
 
   /** Resolve a tracker serial to the vehicle it is bound to (tenant derived from the device). */
@@ -254,6 +256,10 @@ export class TrackingService {
     if (event.batteryVoltage != null && Number(event.batteryVoltage) < 11.5) {
       await this.raiseAlert(organisationId, vehicleId, 'low_battery', 'medium',
         `Vehicle ${registrationNumber} low battery voltage (${event.batteryVoltage}V)`, event.latitude, event.longitude, event.recordedAt);
+    }
+    if (Number(event.speedKph ?? 0) > 2 && event.ignition === false) {
+      await this.raiseAlert(organisationId, vehicleId, 'movement_while_ignition_off', 'high',
+        `Vehicle ${registrationNumber} moved while ignition was off`, event.latitude, event.longitude, event.recordedAt);
     }
   }
 
@@ -649,6 +655,109 @@ export class TrackingService {
       alerts: alerts.map((alert) => toAlertSummary(alert)),
       serverTime: new Date().toISOString(),
     };
+  }
+
+  async getGpsFreshnessMinutes(organisationId: string): Promise<number> {
+    return this.getOrgFreshnessMinutes(organisationId);
+  }
+
+  async setGpsFreshnessMinutes(organisationId: string, minutes: number): Promise<number> {
+    const m = Math.max(1, Math.min(1440, Math.round(minutes)));
+    await this.database.query(
+      `UPDATE geoventra.organisations
+          SET settings = COALESCE(settings, '{}'::jsonb) || jsonb_build_object('gpsFreshnessMinutes', $2::int),
+              updated_at = now()
+        WHERE id = $1`,
+      [organisationId, m],
+    );
+    return m;
+  }
+
+  async getNearestVehicles(
+    organisationId: string,
+    referenceVehicleId: string,
+    options: { limit?: number; maxAgeMinutes?: number } = {},
+  ): Promise<{ reference: { vehicleId: string; latitude: number; longitude: number; recordedAt: string | null }; vehicles: Array<any> }> {
+    const limit = Math.min(5, Math.max(2, Number(options.limit ?? 5)));
+    const orgThreshold = await this.getOrgFreshnessMinutes(organisationId);
+    const ref = await this.database.queryOne<any>(
+      `SELECT v.id, v.gps_freshness_minutes, s.latitude, s.longitude, s.last_recorded_at
+         FROM geoventra.vehicles v
+         LEFT JOIN geoventra.vehicle_live_status s ON s.vehicle_id = v.id
+        WHERE v.organisation_id = $1 AND v.id = $2`,
+      [organisationId, referenceVehicleId],
+    );
+    if (!ref || ref.latitude === null || ref.longitude === null) {
+      throw new Error('Reference vehicle has no valid GPS coordinates');
+    }
+    const refThreshold = ref.gps_freshness_minutes ?? orgThreshold;
+    const refAge = ref.last_recorded_at ? Date.now() - new Date(ref.last_recorded_at).getTime() : Number.MAX_SAFE_INTEGER;
+    if (refAge > refThreshold * 60 * 1000) {
+      throw new Error('Reference vehicle GPS is stale');
+    }
+    const rows = await this.database.query<any>(
+      `SELECT v.id, v.registration_number AS "registrationNumber", v.category,
+              v.gps_freshness_minutes, v.assigned_driver_id AS "driverId", d.name AS "driverName",
+              s.latitude, s.longitude, s.last_recorded_at AS "lastRecordedAt", s.status
+         FROM geoventra.vehicles v
+         LEFT JOIN geoventra.vehicle_live_status s ON s.vehicle_id = v.id
+         LEFT JOIN geoventra.drivers d ON d.id = v.assigned_driver_id
+        WHERE v.organisation_id = $1`,
+      [organisationId],
+    );
+    const now = Date.now();
+    const candidates = rows
+      .filter((r: any) => r.id !== referenceVehicleId)
+      .filter((r: any) => r.latitude !== null && r.longitude !== null)
+      .filter((r: any) => {
+        const threshold = r.gps_freshness_minutes ?? orgThreshold;
+        return r.lastRecordedAt && (now - new Date(r.lastRecordedAt).getTime()) <= threshold * 60 * 1000;
+      })
+      .map((r: any) => ({
+        vehicleId: r.id,
+        registrationNumber: r.registrationNumber,
+        vehicleType: r.category,
+        driverId: r.driverId,
+        driverName: r.driverName,
+        latitude: Number(r.latitude),
+        longitude: Number(r.longitude),
+        distanceKm: haversineKm(Number(ref.latitude), Number(ref.longitude), Number(r.latitude), Number(r.longitude)),
+        lastRecordedAt: new Date(r.lastRecordedAt).toISOString(),
+        effectiveGpsFreshnessMinutes: r.gps_freshness_minutes ?? orgThreshold,
+        connectivityStatus: (now - new Date(r.lastRecordedAt).getTime()) > 15 * 60 * 1000 ? 'offline' : 'online',
+        tripStatus: r.status,
+      }))
+      .sort((a: any, b: any) => a.distanceKm - b.distanceKm)
+      .slice(0, limit);
+
+    const routeResults = await this.routing.routeMatrix(
+      { latitude: Number(ref.latitude), longitude: Number(ref.longitude) },
+      candidates.map((c: any) => ({ latitude: c.latitude, longitude: c.longitude })),
+    );
+    const vehicles = candidates.map((c: any, i: number) => ({
+      ...c,
+      straightLineDistanceKm: c.distanceKm,
+      roadDistanceKm: routeResults[i]?.roadDistanceKm ?? null,
+      etaMinutes: routeResults[i]?.etaMinutes ?? null,
+      routeStatus: routeResults[i]?.status ?? 'unavailable',
+      routingProvider: routeResults[i]?.provider ?? null,
+    }));
+
+    return {
+      reference: { vehicleId: referenceVehicleId, latitude: Number(ref.latitude), longitude: Number(ref.longitude), recordedAt: ref.last_recorded_at ? new Date(ref.last_recorded_at).toISOString() : null },
+      vehicles,
+    };
+  }
+
+  async getOrgFreshnessMinutes(organisationId: string): Promise<number> {
+    const row = await this.database.queryOne<any>(
+      `SELECT settings FROM geoventra.organisations WHERE id = $1`,
+      [organisationId],
+    );
+    const val = row?.settings?.gpsFreshnessMinutes;
+    const n = Number(val);
+    if (Number.isFinite(n) && n > 0) return n;
+    return 15;
   }
 
   /**
@@ -1200,3 +1309,4 @@ export function computeVehicleTrackingStats(
     gapCount: gaps.length,
   };
 }
+

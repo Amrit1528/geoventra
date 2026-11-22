@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Layers, ScrollText, Shield, Users } from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, KpiCard, LoadingPanel, PageLayout } from '@geoventra/ui';
 import { createAdminUser, createApiKey, createFleetGroup, deleteAdminUser, deleteFleetGroup, fetchAdminUsers, fetchApiKeys, fetchAuditLogs, fetchFleetGroups, fetchRoles, updateAdminUser } from '@/lib/admin-api';
+import { fetchGpsFreshness, updateGpsFreshness } from '@/lib/track-api';
 
 export default function AdminPage(): ReactElement {
   const qc = useQueryClient();
@@ -13,6 +14,9 @@ export default function AdminPage(): ReactElement {
   const auditQ = useQuery({ queryKey: ['audit'], queryFn: () => fetchAuditLogs({ page:1, pageSize:50 }), enabled: tab==='audit' });
   const keysQ = useQuery({ queryKey: ['api-keys'], queryFn: () => fetchApiKeys({ page:1, pageSize:50 }), enabled: tab==='keys' });
   const groupsQ = useQuery({ queryKey: ['fleet-groups'], queryFn: fetchFleetGroups, enabled: tab==='groups' });
+  const freshnessQ = useQuery({ queryKey: ['gps-freshness'], queryFn: fetchGpsFreshness });
+  const [freshnessInput, setFreshnessInput] = useState('');
+  const saveFreshness = useMutation({ mutationFn: (m: number) => updateGpsFreshness(m), onSuccess: () => qc.invalidateQueries({ queryKey: ['gps-freshness'] }) });
   const createKey = useMutation({ mutationFn: () => createApiKey({ name: `API Key ${new Date().toLocaleString()}` }), onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }) });
   const users = usersQ.data?.data ?? [];
   const roles = Array.isArray(rolesQ.data) ? rolesQ.data : (rolesQ.data?.data ?? []);
@@ -34,6 +38,7 @@ export default function AdminPage(): ReactElement {
         <KpiCard icon={<KeyRound size={18} />} label="API keys" value={String(keysQ.data?.meta?.total ?? (tab==='keys'?keys.length:'—'))} unit="issued" />
         <KpiCard icon={<Layers size={18} />} label="Fleet groups" value={String(groups.length || '—')} unit="groups" />
       </div>
+      <Card><CardHeader><CardTitle>GPS freshness threshold</CardTitle></CardHeader><CardContent><div className="flex flex-wrap items-center gap-3 text-sm"><span>Current: <b>{(freshnessQ.data as any)?.minutes ?? '—'}</b> minutes (default {(freshnessQ.data as any)?.defaultMinutes ?? 15})</span><input value={freshnessInput || String((freshnessQ.data as any)?.minutes ?? '')} onChange={(e)=>setFreshnessInput(e.target.value)} className="h-9 w-24 rounded-lg border border-[var(--border)] bg-[var(--bg-app)] px-3 text-sm" /><Button variant="primary" size="sm" onClick={()=>{const n=Number(freshnessInput); if(Number.isFinite(n)&&n>=1&&n<=1440) saveFreshness.mutate(n);}} disabled={saveFreshness.isPending}>Save</Button></div><p className="mt-2 text-xs text-[var(--text-muted)]">Used for GPS stale/offline classification and nearby vehicle filtering.</p></CardContent></Card>
       <div className="flex flex-wrap gap-2">{tabs.map(t => <button key={t.id} onClick={()=>setTab(t.id)} className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${tab===t.id?'border-teal-500 bg-teal-50 text-teal-800 [html[data-theme=dark]_&]:bg-teal-950/30 [html[data-theme=dark]_&]:text-teal-200':'border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]'}`}>{t.icon}{t.label}</button>)}</div>
 
       {tab==='users' ? <Card><CardHeader><CardTitle>Users</CardTitle></CardHeader><CardContent>{usersQ.isLoading?<LoadingPanel label="Loading users…"/>:users.length===0?<EmptyState title="No users" description="Create users to grant access to the platform."/>:<div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="text-left text-xs uppercase text-[var(--text-muted)]"><tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Email</th><th className="px-3 py-2">Role</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Last login</th><th className="px-3 py-2">Actions</th></tr></thead><tbody>{users.map((u:any)=>(<tr key={u.id} className="border-t border-[var(--border)]"><td className="px-3 py-2 font-medium">{u.name}</td><td className="px-3 py-2">{u.email}</td><td className="px-3 py-2">{u.role_name||u.roleName||'—'}</td><td className="px-3 py-2"><Badge variant={u.status==='active'?'success':u.status==='suspended'?'critical':'neutral'}>{u.status}</Badge></td><td className="px-3 py-2">{u.last_login_at?new Date(u.last_login_at).toLocaleString():'—'}</td><td className="px-3 py-2"><div className="flex gap-2"><Button variant="secondary" size="sm" onClick={()=>updateAdminUser(u.id,{status:u.status==='active'?'suspended':'active'}).then(()=>usersQ.refetch())}>{u.status==='active'?'Suspend':'Activate'}</Button><Button variant="danger" size="sm" onClick={()=>{if(confirm('Delete user?')) deleteAdminUser(u.id).then(()=>usersQ.refetch());}}>Delete</Button></div></td></tr>))}</tbody></table></div>}</CardContent></Card> : null}

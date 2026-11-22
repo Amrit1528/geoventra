@@ -155,6 +155,16 @@ export class TripsService {
     return [header, ...lines].join('\n');
   }
 
+  async latestCompleted(organisationId: string, vehicleId: string): Promise<TripSummary | null> {
+    const { rows } = await this.repository.list(organisationId, { vehicleId, status: 'completed' }, 1, 0);
+    return rows.length && rows[0] ? toTripSummary(rows[0]) : null;
+  }
+
+  async currentTrip(organisationId: string, vehicleId: string): Promise<TripSummary | null> {
+    const { rows } = await this.repository.list(organisationId, { vehicleId, status: 'active' }, 1, 0);
+    return rows.length && rows[0] ? toTripSummary(rows[0]) : null;
+  }
+
   // ── Ingest-time trip detection ───────────────────────────────────────────
 
   /**

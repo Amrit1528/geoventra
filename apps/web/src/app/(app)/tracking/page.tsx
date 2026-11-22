@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import {
   Crosshair,
   Expand,
@@ -54,6 +55,7 @@ export default function TrackingPage(): ReactElement {
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.accessToken);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const searchParams = useSearchParams();
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | LivePosition['status']>('all');
@@ -61,6 +63,7 @@ export default function TrackingPage(): ReactElement {
   const [typeFilter, setTypeFilter] = useState('all');
   const [sortBy, setSortBy] = useState<SortKey>('lastUpdate');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [highlightedIds, setHighlightedIds] = useState<string[]>([]);
   const [fitSignal, setFitSignal] = useState(0);
   const [fitSelectedSignal, setFitSelectedSignal] = useState(0);
   const [fitRouteSignal, setFitRouteSignal] = useState(0);
@@ -75,6 +78,22 @@ export default function TrackingPage(): ReactElement {
   const [mobileListOpen, setMobileListOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const hasFittedRef = useRef(false);
+
+  useEffect(() => {
+    const vehicleFromUrl = searchParams.get('vehicle');
+    const vehiclesFromUrl = searchParams.get('vehicles');
+    const ids = vehiclesFromUrl ? vehiclesFromUrl.split(',').filter(Boolean) : [];
+    setHighlightedIds(ids);
+    if (vehicleFromUrl) {
+      setSelectedId(vehicleFromUrl ?? null);
+      setMobilePanelOpen(true);
+      setTimeout(() => setFitSelectedSignal((v) => v + 1), 0);
+    } else if (ids.length === 1) {
+      setSelectedId(ids[0] ?? null);
+      setMobilePanelOpen(true);
+      setTimeout(() => setFitSelectedSignal((v) => v + 1), 0);
+    }
+  }, [searchParams]);
 
   const snapshotQuery = useQuery({
     queryKey: ['tracking-snapshot'],
@@ -343,6 +362,7 @@ export default function TrackingPage(): ReactElement {
               positions={filtered}
               geofences={geofences}
               selectedId={selectedId}
+              highlightedIds={highlightedIds}
               onSelect={(id) => selectVehicle(id, true)}
               fitSignal={fitSignal}
               fitSelectedSignal={fitSelectedSignal}

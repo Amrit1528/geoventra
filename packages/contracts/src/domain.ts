@@ -243,6 +243,7 @@ export interface VehicleSummary {
   lastBatteryVoltage: number | null;
   lastRecordedAt: string | null;
   activeFlag: boolean;
+  gpsFreshnessMinutes: number | null;
   createdAt: string;
 }
 
