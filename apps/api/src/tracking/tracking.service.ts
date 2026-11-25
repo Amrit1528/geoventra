@@ -673,6 +673,8 @@ export class TrackingService {
     return m;
   }
 
+  async routingHealth() { return this.routing.healthCheck(); }
+
   async getNearestVehicles(
     organisationId: string,
     referenceVehicleId: string,

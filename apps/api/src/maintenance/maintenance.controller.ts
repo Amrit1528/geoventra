@@ -20,5 +20,6 @@ export class MaintenanceController {
   @Post('work-orders') createWorkOrder(@Req() req: any, @Body() body: any) { return this.svc.createWorkOrder(req.user.organisationId, body ?? {}); }
 
   @Get('health-scores') healthScores(@Req() req: any) { return this.svc.listHealthScores(req.user.organisationId); }
+  @Get('reminders') reminders(@Req() req: any) { return this.svc.reminders(req.user.organisationId); }
   @Get('downtime') downtime(@Req() req: any) { return this.svc.downtime(req.user.organisationId); }
 }

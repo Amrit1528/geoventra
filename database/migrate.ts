@@ -22,7 +22,7 @@ import pg from 'pg';
 
 const { Client } = pg;
 
-const DEFAULT_DATABASE_URL = 'postgresql://localhost:5432/geoventra';
+const DEFAULT_DATABASE_URL = 'postgresql://geoventra@localhost:5432/geoventra';
 const MIGRATIONS_DIRNAME = 'migrations';
 const SCHEMA = 'geoventra';
 const MIGRATION_TABLE = 'geoventra.schema_migrations';

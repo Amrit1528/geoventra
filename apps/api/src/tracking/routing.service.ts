@@ -23,6 +23,17 @@ export class RoutingService {
     return url ? url.replace(/\/$/, '') : null;
   }
 
+  async healthCheck(): Promise<{ status: string; provider: string | null }> {
+    const provider = this.providerUrl();
+    if (!provider) return { status: 'not_configured', provider: null };
+    try {
+      const res = await fetch(provider + '/health');
+      return { status: res.ok ? 'healthy' : 'unhealthy', provider };
+    } catch {
+      return { status: 'unreachable', provider };
+    }
+  }
+
   private cacheTtlMs(): number {
     return Number(process.env.ROUTING_CACHE_TTL_SECONDS ?? 300) * 1000;
   }

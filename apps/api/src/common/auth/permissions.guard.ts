@@ -5,7 +5,7 @@
  * without the requested permission receives a 403.
  */
 
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Inject } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from './permissions.decorator.js';
 import type { Permission } from '@geoventra/contracts';
@@ -13,7 +13,7 @@ import type { AuthenticatedRequest } from './jwt-auth.guard.js';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
     const required = this.reflector.getAllAndOverride<Permission[]>(PERMISSIONS_KEY, [

@@ -51,6 +51,9 @@ export async function createVehicle(input: {
   fuelType: FuelType;
   year: number;
   vin: string;
+  chassisNumber?: string;
+  engineNumber?: string;
+  ownership?: string;
   city?: string;
   groupId?: string;
   assignedDriverId?: string;
@@ -74,6 +77,9 @@ export async function updateVehicle(id: string, input: Partial<{
   fuelType: FuelType;
   year: number;
   vin: string;
+  chassisNumber?: string;
+  engineNumber?: string;
+  ownership?: string;
   city?: string;
   groupId?: string;
   assignedDriverId?: string;

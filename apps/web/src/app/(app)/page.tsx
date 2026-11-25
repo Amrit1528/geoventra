@@ -37,6 +37,9 @@ import { fetchSnapshot, fetchGeofenceAlerts, fetchGeofenceEvents } from '@/lib/t
 import { fetchInsuranceSummary } from '@/lib/insurance-api';
 import { fetchIntelligenceFleet, fetchIntelligenceFuel, fetchIntelligenceTrips, fetchIntelligenceDrivers, fetchIntelligenceMaintenance, fetchIntelligenceInsights } from '@/lib/intelligence-api';
 import { fetchDevices } from '@/lib/devices-api';
+import { fetchTpmsDashboard } from '@/lib/tpms-api';
+import { fetchEngineVehicles } from '@/lib/engine-api';
+import { fetchTrips } from '@/lib/track-api';
 import type { AlertSummary, LivePosition } from '@geoventra/contracts';
 
 type VehicleStatus = 'moving' | 'idle' | 'stopped' | 'offline';
@@ -96,6 +99,9 @@ export default function DashboardPage(): ReactElement {
   const driversQ = useQuery({ queryKey: ['dashboard-intelligence-drivers'], queryFn: () => fetchIntelligenceDrivers(), refetchInterval: 60_000 });
   const maintQ = useQuery({ queryKey: ['dashboard-intelligence-maint'], queryFn: () => fetchIntelligenceMaintenance(), refetchInterval: 60_000 });
   const insightsQ = useQuery({ queryKey: ['dashboard-intelligence-insights'], queryFn: () => fetchIntelligenceInsights(), refetchInterval: 60_000 });
+  const tpmsQ = useQuery({ queryKey: ['dashboard-tpms'], queryFn: fetchTpmsDashboard, refetchInterval: 60_000 });
+  const engineQ = useQuery({ queryKey: ['dashboard-engine'], queryFn: () => fetchEngineVehicles({ page: 1, pageSize: 100 }), refetchInterval: 60_000 });
+  const activeTripsQ = useQuery({ queryKey: ['dashboard-active-trips'], queryFn: () => fetchTrips({ status: 'active', page: 1, pageSize: 1 }), refetchInterval: 30_000 });
   const devicesQ = useQuery({ queryKey: ['dashboard-devices'], queryFn: () => fetchDevices({ page: 1, pageSize: 1 }), refetchInterval: 60_000 });
   const geofenceEventsQ = useQuery({ queryKey: ['dashboard-geofence-events'], queryFn: () => fetchGeofenceEvents({ limit: 8 }), refetchInterval: 60_000 });
 
@@ -185,6 +191,13 @@ export default function DashboardPage(): ReactElement {
         <Link href="/vehicles?active=inactive"><KpiCard label="Disabled vehicles" value={fleetQ.data?.disabledVehicles ?? '—'} tone={(fleetQ.data?.disabledVehicles ?? 0) > 0 ? 'warning' : 'neutral'} icon={<ShieldAlert size={16} />} /></Link>
         <Link href="/maintenance"><KpiCard label="Maintenance predictions" value={maintQ.data?.predictions?.length ?? '—'} tone={(maintQ.data?.predictions?.length ?? 0) > 0 ? 'warning' : 'neutral'} icon={<Wrench size={16} />} /></Link>
         <Link href="/devices"><KpiCard label="Devices" value={devicesQ.data?.meta?.total ?? '—'} icon={<Activity size={16} />} /></Link>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Link href="/trips?status=active"><KpiCard label="Vehicles on trips" value={activeTripsQ.data?.meta?.total ?? '—'} tone="positive" icon={<Route size={16} />} /></Link>
+        <Link href="/engine"><KpiCard label="Engine fault vehicles" value={(engineQ.data?.data ?? []).filter((v: any) => (v.activeDtcCount ?? 0) > 0).length ?? '—'} tone={(engineQ.data?.data ?? []).some((v: any) => (v.activeDtcCount ?? 0) > 0) ? 'negative' : 'neutral'} icon={<Gauge size={16} />} /></Link>
+        <Link href="/tpms"><KpiCard label="TPMS critical tyres" value={tpmsQ.data?.criticalTyres ?? '—'} tone={(tpmsQ.data?.criticalTyres ?? 0) > 0 ? 'negative' : 'neutral'} icon={<Activity size={16} />} /></Link>
+        <Link href="/alerts"><KpiCard label="Open alerts" value={alertsQuery.data?.data?.length ?? '—'} tone={(alertsQuery.data?.data?.length ?? 0) > 0 ? 'warning' : 'neutral'} icon={<AlertTriangle size={16} />} /></Link>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -496,6 +509,21 @@ export default function DashboardPage(): ReactElement {
               <Link href="/geofences" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline dark:text-teal-300">Geofence management <ArrowUpRight size={13} /></Link>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle as="h2">Operational exceptions</CardTitle></CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {(fleet.offline > 0) && <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{fleet.offline} offline vehicle{fleet.offline === 1 ? '' : 's'} — check connectivity.</div>}
+            {(alertsQuery.data?.data?.length ?? 0) > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">{alertsQuery.data?.data?.length} open alert{alertsQuery.data?.data?.length === 1 ? '' : 's'} — review in alert centre.</div>}
+            {(engineQ.data?.data ?? []).some((v: any) => (v.activeDtcCount ?? 0) > 0) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">Vehicles with engine faults — open diagnostics.</div>}
+            {(tpmsQ.data?.criticalTyres ?? 0) > 0 && <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{tpmsQ.data?.criticalTyres} critical TPMS tyre{tpmsQ.data?.criticalTyres === 1 ? '' : 's'} — inspect tyres.</div>}
+            {(maintQ.data?.predictions ?? []).filter((p: any) => ['high','critical'].includes(p.riskLevel)).length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">High-risk maintenance predictions — schedule service.</div>}
+            {(insuranceQuery.data?.expiringSoon ?? 0) > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">{insuranceQuery.data?.expiringSoon} insurance polic{insuranceQuery.data?.expiringSoon === 1 ? 'y' : 'ies'} expiring soon.</div>}
+            {fleet.offline === 0 && (alertsQuery.data?.data?.length ?? 0) === 0 && !(engineQ.data?.data ?? []).some((v: any) => (v.activeDtcCount ?? 0) > 0) && (tpmsQ.data?.criticalTyres ?? 0) === 0 && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">No critical operational exceptions detected.</div>}
+          </div>
         </CardContent>
       </Card>
 

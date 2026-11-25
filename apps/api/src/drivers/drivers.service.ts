@@ -23,8 +23,10 @@ export class DriversService {
     const count = await this.database.query(`SELECT COUNT(*)::int AS total FROM geoventra.drivers d WHERE ${where.join(' AND ')}`, params);
     const total = Number((count[0] as any)?.total ?? 0);
     const rows = await this.database.query(
-      `SELECT d.id, d.name, d.phone, d.email, d.license_number AS "licenseNumber", d.license_expiry AS "licenseExpiry",
-              d.status, d.safety_score AS "safetyScore", d.photo_url AS "photoUrl", d.address, d.joined_at AS "joinedAt", d.created_at AS "createdAt",
+      `SELECT d.id, d.driver_code AS "driverCode", d.name, d.phone, d.email,
+              d.license_number AS "licenseNumber", d.license_class AS "licenseClass", d.license_expiry AS "licenseExpiry",
+              d.emergency_contact AS "emergencyContact", d.joined_at AS "joinedAt",
+              d.status, d.safety_score AS "safetyScore", d.photo_url AS "photoUrl", d.address, d.created_at AS "createdAt",
               d.active_flag AS "activeFlag",
               v.id AS "assignedVehicleId", v.registration_number AS "assignedVehicleRegistration"
        FROM geoventra.drivers d
@@ -48,23 +50,75 @@ export class DriversService {
     return { ...row, activeFlag: row.active_flag ?? row.activeFlag ?? true };
   }
 
-  async create(organisationId: string, input: any) {
+  /** Next sequential, organisation-scoped driver code (GV-DRV-0001, …). */
+  private async nextDriverCode(organisationId: string): Promise<string> {
     const row = await this.database.queryOne<any>(
-      `INSERT INTO geoventra.drivers (organisation_id, name, phone, email, license_number, license_expiry, status, safety_score, photo_url, address, active_flag)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [organisationId, input.name, input.phone ?? '', input.email ?? '', input.licenseNumber ?? input.license_number ?? '', input.licenseExpiry ?? input.license_expiry ?? new Date().toISOString().slice(0,10), input.status ?? 'active', input.safetyScore ?? 100, input.photoUrl ?? null, input.address ?? null, input.activeFlag ?? input.active_flag ?? true],
+      `SELECT COALESCE(MAX(NULLIF(regexp_replace(driver_code, '\\D', '', 'g'), '')::int), 0) AS max
+         FROM geoventra.drivers WHERE organisation_id = $1`,
+      [organisationId],
     );
-    return row;
+    return `GV-DRV-${String(Number(row?.max ?? 0) + 1).padStart(4, '0')}`;
+  }
+
+  /** Moves a driver onto the given vehicle (or detaches from all vehicles). */
+  private async setAssignedVehicle(organisationId: string, driverId: string, vehicleId: string | null): Promise<void> {
+    await this.database.query(
+      `UPDATE geoventra.vehicles SET assigned_driver_id = NULL, updated_at = now() WHERE organisation_id = $1 AND assigned_driver_id = $2`,
+      [organisationId, driverId],
+    );
+    if (vehicleId) {
+      await this.database.query(
+        `UPDATE geoventra.vehicles SET assigned_driver_id = $3, updated_at = now() WHERE organisation_id = $1 AND id = $2`,
+        [organisationId, vehicleId, driverId],
+      );
+    }
+  }
+
+  async create(organisationId: string, input: any) {
+    const driverCode = String(input.driverCode ?? input.driver_code ?? '').trim() || (await this.nextDriverCode(organisationId));
+    const licenseExpiry = input.licenseExpiry || input.license_expiry || new Date().toISOString().slice(0, 10);
+    let row: any;
+    try {
+      row = await this.database.queryOne<any>(
+        `INSERT INTO geoventra.drivers (organisation_id, driver_code, name, phone, email, license_number, license_class, license_expiry, emergency_contact, joined_at, status, safety_score, photo_url, address, active_flag)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::date, CURRENT_DATE),$11,$12,$13,$14,$15) RETURNING *`,
+        [
+          organisationId, driverCode, input.name, input.phone || '', input.email || '',
+          input.licenseNumber || input.license_number || `UNLICENSED-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          input.licenseClass ?? input.license_class ?? null, licenseExpiry,
+          input.emergencyContact ?? input.emergency_contact ?? null,
+          input.joinedAt || input.joined_at || null,
+          input.status ?? 'active', input.safetyScore ?? 100, input.photoUrl ?? null, input.address ?? null,
+          input.activeFlag ?? input.active_flag ?? true,
+        ],
+      );
+    } catch (error: any) {
+      if (error?.code === '23505') throw new Error(`Driver code "${driverCode}" is already in use.`);
+      throw error;
+    }
+    const assignedVehicleId = input.assignedVehicleId ?? input.assigned_vehicle_id ?? null;
+    if (assignedVehicleId) await this.setAssignedVehicle(organisationId, row.id, assignedVehicleId);
+    return this.get(organisationId, row.id);
   }
 
   async update(organisationId: string, id: string, input: any) {
     const existing = await this.database.queryOne<any>('SELECT id FROM geoventra.drivers WHERE organisation_id=$1 AND id=$2', [organisationId, id]);
     if (!existing) throw new NotFoundException('Driver not found');
-    const map: Record<string,string> = { licenseNumber: 'license_number', licenseExpiry: 'license_expiry', safetyScore: 'safety_score', photoUrl: 'photo_url', activeFlag: 'active_flag', active_flag: 'active_flag' };
+    const map: Record<string,string> = { driverCode: 'driver_code', licenseNumber: 'license_number', licenseClass: 'license_class', licenseExpiry: 'license_expiry', emergencyContact: 'emergency_contact', joinedAt: 'joined_at', safetyScore: 'safety_score', photoUrl: 'photo_url', activeFlag: 'active_flag', active_flag: 'active_flag' };
+    const skip = new Set(['assignedVehicleId', 'assigned_vehicle_id', 'assignedVehicleRegistration', 'id', 'organisationId', 'organisation_id', 'createdAt', 'created_at', 'updatedAt', 'updated_at']);
     const fields = ['updated_at = now()']; const params: any[] = []; let i = 1;
-    for (const [k,v] of Object.entries(input ?? {})) { if (v === undefined) continue; fields.push(`${map[k] ?? k} = $${i++}`); params.push(v); }
+    for (const [k,v] of Object.entries(input ?? {})) {
+      if (v === undefined || v === null || skip.has(k)) continue;
+      const col = map[k] ?? k;
+      if (v === '' && (col === 'license_expiry' || col === 'insurance_expiry' || col === 'registration_expiry' || col === 'joined_at')) continue;
+      fields.push(`${col} = $${i++}`); params.push(v);
+    }
     params.push(organisationId, id);
     const row = await this.database.queryOne<any>(`UPDATE geoventra.drivers SET ${fields.join(', ')} WHERE organisation_id=$${i} AND id=$${i+1} RETURNING *`, params);
+    if (input.assignedVehicleId !== undefined || input.assigned_vehicle_id !== undefined) {
+      await this.setAssignedVehicle(organisationId, id, input.assignedVehicleId ?? input.assigned_vehicle_id ?? null);
+      return this.get(organisationId, id);
+    }
     return row ? { ...row, activeFlag: row.active_flag ?? row.activeFlag ?? true } : row;
   }
 

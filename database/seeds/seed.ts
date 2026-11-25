@@ -21,7 +21,7 @@ import { hashPassword, verifyPassword } from '../hash.js';
 
 const { Client } = pg;
 
-const DEFAULT_DATABASE_URL = 'postgresql://localhost:5432/geoventra';
+const DEFAULT_DATABASE_URL = 'postgresql://geoventra@localhost:5432/geoventra';
 const DEFAULT_PASSWORD = 'Geoventra@2026';
 const SCHEMA = 'geoventra';
 
@@ -63,6 +63,18 @@ const PERMISSIONS: readonly PermissionDefinition[] = [
   { code: 'settings.read', description: 'View organisation settings' },
   { code: 'settings.write', description: 'Update organisation settings' },
   { code: 'simulator.control', description: 'Start, stop and reset the demo GPS simulator' },
+  { code: 'insights.read', description: 'View operational insight events and rules' },
+  { code: 'insights.write', description: 'Acknowledge and resolve insight events; manage rules' },
+  { code: 'scorecards.read', description: 'View driver and vehicle scorecards' },
+  { code: 'scorecards.write', description: 'Configure scorecard factors and weights' },
+  { code: 'delivery.read', description: 'View customer delivery tracking links' },
+  { code: 'delivery.write', description: 'Create and revoke customer delivery tracking links' },
+  { code: 'billing.read', description: 'View subscription plans, invoices and payment status' },
+  { code: 'billing.write', description: 'Manage subscription plans and billing records' },
+  { code: 'partners.read', description: 'View installer/reseller partners and commissions' },
+  { code: 'partners.write', description: 'Manage partners, assignments and commissions' },
+  { code: 'branding.read', description: 'View tenant branding settings' },
+  { code: 'branding.write', description: 'Update tenant branding settings' },
   { code: 'tracking.read', description: 'View live positions and vehicle trails' },
   { code: 'tracking.export', description: 'Export vehicle tracking history as CSV' },
   { code: 'tpms.read', description: 'View TPMS dashboards, tyre status, sensor readings and reports' },
@@ -106,6 +118,12 @@ const MANAGER_CODES: readonly string[] = [
   'vehicles.read',
   'vehicles.write',
   'reports.read',
+  'insights.read',
+  'insights.write',
+  'scorecards.read',
+  'delivery.read',
+  'delivery.write',
+  'branding.read',
 ];
 
 /** Permissions the viewer role is allowed to use. */
@@ -744,11 +762,14 @@ async function seed(client: pg.Client): Promise<string[]> {
     IDS.driver,
     {
       organisation_id: organisationId,
+      driver_code: 'GV-DRV-0001',
       name: 'Vivaan Patel',
       phone: '+91 9100000000',
       email: 'vivaan.patel@geoventra.in',
       license_number: 'MH-2016-1000000',
+      license_class: 'LMV / Transport',
       license_expiry: '2029-04-30',
+      emergency_contact: 'Demo contact · +91 90000 00009',
       status: 'active',
       safety_score: 96,
       address: 'Baner, Pune, Maharashtra 411045',
@@ -937,6 +958,55 @@ async function seed(client: pg.Client): Promise<string[]> {
     },
   );
   summary.push('maintenance record Scheduled 10000 km service');
+
+  // ── Minimal demo data for operational/business tabs ───────────────────────
+  await client.query(
+    `INSERT INTO ${SCHEMA}.tenant_branding (organisation_id, company_name, primary_color, secondary_color)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (organisation_id) DO NOTHING`,
+    [organisationId, 'Geoventra Logistics', '#0d9488', '#0f172a'],
+  );
+  summary.push('tenant branding');
+
+  await client.query(
+    `INSERT INTO ${SCHEMA}.subscription_plans (id, code, name, description, price_cents, vehicle_limit, features, active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, true)
+     ON CONFLICT (code) DO NOTHING`,
+    ['a2000000-0000-4000-8000-000000000001', 'GROWTH', 'Growth Plan', 'Mid-size fleet plan', 49900, 50, '["tracking","trips","alerts"]'],
+  );
+  summary.push('subscription plan Growth Plan');
+
+  await client.query(
+    `INSERT INTO ${SCHEMA}.partners (id, name, partner_type, contact_name, contact_email, commission_rate, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (id) DO NOTHING`,
+    ['a3000000-0000-4000-8000-000000000001', 'Pune Auto Works', 'installer', 'Ravi Kumar', 'ravi@puneauto.in', 5.0, 'active'],
+  );
+  summary.push('partner Pune Auto Works');
+
+  await client.query(
+    `INSERT INTO ${SCHEMA}.delivery_tracking_links (id, organisation_id, vehicle_id, token_hash, label, expires_at, permitted_fields)
+     VALUES ($1, $2, $3, $4, $5, now() + interval '7 days', $6::jsonb)
+     ON CONFLICT (token_hash) DO NOTHING`,
+    ['a4000000-0000-4000-8000-000000000001', organisationId, vehicleIds[0] ?? null, 'demo-delivery-token-hash', 'Demo delivery link', '["location","status","eta"]'],
+  );
+  summary.push('delivery tracking link');
+
+  await client.query(
+    `INSERT INTO ${SCHEMA}.scorecard_results (id, organisation_id, entity_type, entity_id, period_start, period_end, overall_score, breakdown)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+     ON CONFLICT (organisation_id, entity_type, entity_id, period_start, period_end) DO NOTHING`,
+    ['a5000000-0000-4000-8000-000000000001', organisationId, 'vehicle', vehicleIds[0], '2026-10-01', '2026-10-31', 82.5, '[]'],
+  );
+  summary.push('scorecard result');
+
+  await client.query(
+    `INSERT INTO ${SCHEMA}.insight_events (id, organisation_id, rule_type, insight_type, title, severity, status, occurred_at, description)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8)
+     ON CONFLICT (id) DO NOTHING`,
+    ['a6000000-0000-4000-8000-000000000001', organisationId, 'utilisation', 'operations', 'Fleet utilisation below target', 'medium', 'open', 'Weekly utilisation is 62%, below the 75% target.'],
+  );
+  summary.push('insight event');
 
   return summary;
 }

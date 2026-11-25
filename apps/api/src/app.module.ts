@@ -34,9 +34,18 @@ import { DriversModule } from './drivers/drivers.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { Pt06Module } from './pt06/pt06.module.js';
+import { Ps10Module } from './ps10/ps10.module.js';
 import { AdminModule } from './admin/admin.module.js';
 import { IncidentsModule } from './incidents/incidents.module.js';
+import { DispatchModule } from './dispatch/dispatch.module.js';
 import { IntelligenceModule } from './intelligence/intelligence.module.js';
+import { NotificationQueueModule } from './notification-queue/notification-queue.module.js';
+import { IntegrationsModule } from './integrations/integrations.module.js';
+import { InsightsModule } from './insights/insights.module.js';
+import { ScorecardsModule } from './scorecards/scorecards.module.js';
+import { DeliveryModule } from './delivery/delivery.module.js';
+import { CommercialModule } from './commercial/commercial.module.js';
+import { DeviceAdaptersModule } from './device-adapters/device-adapters.module.js';
 
 @Module({
   imports: [
@@ -66,8 +75,17 @@ import { IntelligenceModule } from './intelligence/intelligence.module.js';
     MaintenanceModule,
     ReportsModule,
     Pt06Module,
+    Ps10Module,
     IntelligenceModule,
     IncidentsModule,
+    DispatchModule,
+    NotificationQueueModule,
+    IntegrationsModule,
+    InsightsModule,
+    ScorecardsModule,
+    DeliveryModule,
+    CommercialModule,
+    DeviceAdaptersModule,
   ],
 })
 export class AppModule {}

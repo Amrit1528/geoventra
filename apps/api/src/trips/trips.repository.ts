@@ -66,11 +66,12 @@ export class TripsRepository {
     }
     if (filters.from) {
       params.push(filters.from);
-      conditions.push(`t.started_at >= $${params.length}`);
+      conditions.push(`t.started_at >= ($${params.length}::date)::timestamptz`);
     }
     if (filters.to) {
+      // Date pickers produce date-only values; include the whole selected day.
       params.push(filters.to);
-      conditions.push(`t.started_at <= $${params.length}`);
+      conditions.push(`t.started_at < ($${params.length}::date + 1)`);
     }
     if (filters.search && filters.search.trim().length > 0) {
       params.push(`%${filters.search.trim()}%`);

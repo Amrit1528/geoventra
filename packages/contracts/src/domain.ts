@@ -13,8 +13,17 @@ export const VEHICLE_CATEGORIES = [
   'motorcycle',
   'tractor',
   'construction',
+  'light_commercial',
 ] as const;
 export type VehicleCategory = (typeof VEHICLE_CATEGORIES)[number];
+
+export const VEHICLE_OWNERSHIPS = [
+  'company_owned',
+  'individually_owned',
+  'leased',
+  'rented',
+] as const;
+export type VehicleOwnership = (typeof VEHICLE_OWNERSHIPS)[number];
 
 export const VEHICLE_STATUSES = ['moving', 'idle', 'stopped', 'offline'] as const;
 export type VehicleStatus = (typeof VEHICLE_STATUSES)[number];
@@ -135,6 +144,18 @@ export const PERMISSIONS = [
   'settings.read',
   'settings.write',
   'simulator.control',
+  'insights.read',
+  'insights.write',
+  'scorecards.read',
+  'scorecards.write',
+  'delivery.read',
+  'delivery.write',
+  'billing.read',
+  'billing.write',
+  'partners.read',
+  'partners.write',
+  'branding.read',
+  'branding.write',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -223,6 +244,10 @@ export interface VehicleSummary {
   model: string;
   fuelType: FuelType;
   year: number;
+  vin: string;
+  chassisNumber: string;
+  engineNumber: string;
+  ownership: VehicleOwnership;
   status: VehicleStatus;
   odometerKm: number;
   engineHours: number;
@@ -271,11 +296,15 @@ export interface VehicleDetail extends VehicleSummary {
 
 export interface DriverSummary {
   id: string;
+  driverCode: string;
   name: string;
   phone: string;
   email: string;
   licenseNumber: string;
+  licenseClass: string | null;
   licenseExpiry: string;
+  emergencyContact: string | null;
+  joinedAt: string;
   status: DriverStatus;
   safetyScore: number;
   assignedVehicleId: string | null;

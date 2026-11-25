@@ -89,6 +89,10 @@ export class TrackingController {
     return { minutes: saved };
   }
 
+  @Get('routing/health')
+  @RequirePermissions('vehicles.read')
+  async routingHealth() { return this.trackingService.routingHealth(); }
+
   /** Full tracking detail for one vehicle (identity, live position, device, driver, alerts). */
   @Get('vehicles/:vehicleId')
   @RequirePermissions('tracking.read')

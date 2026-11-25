@@ -28,7 +28,7 @@ export class AlertService {
     let i = 2;
 
     if (vehicleId) { where.push(`vehicle_id = $${i}`); params.push(vehicleId); i++; }
-    if (alertType) { where.push(`(alert_type = $${i} OR type = $${i})`); params.push(alertType); i++; }
+    if (alertType) { where.push(`type = $${i}`); params.push(alertType); i++; }
     if (severity) { where.push(`severity = $${i}`); params.push(severity); i++; }
     if (status) { where.push(`status = $${i}`); params.push(status); i++; }
     if (from) { where.push(`COALESCE(occurred_at, created_at) >= $${i}`); params.push(from); i++; }
@@ -38,8 +38,8 @@ export class AlertService {
     const countResult = await this.database.query<any>(countSql, params);
     const total = Number((countResult[0] as any)?.total ?? 0);
 
-    const dataSql = `SELECT id, vehicle_id AS "vehicleId", COALESCE(alert_type, type) AS "alertType", severity, status,
-                            COALESCE(message, title, '') AS message, title, description,
+    const dataSql = `SELECT id, vehicle_id AS "vehicleId", type AS "alertType", severity, status,
+                            COALESCE(message, title, '') AS message, title,
                             acknowledged_at AS "acknowledgedAt", resolved_at AS "resolvedAt",
                             acknowledged_by AS "acknowledgedBy", resolved_by AS "resolvedBy",
                             COALESCE(occurred_at, created_at) AS "occurredAt", created_at AS "createdAt"
@@ -54,11 +54,11 @@ export class AlertService {
 
   async getAlert(organisationId: string, alertId: string) {
     const row = await this.database.queryOne<any>(
-      `SELECT id, vehicle_id AS "vehicleId", COALESCE(alert_type, type) AS "alertType", severity, status,
-              COALESCE(message, title, '') AS message, title, description,
+      `SELECT id, vehicle_id AS "vehicleId", type AS "alertType", severity, status,
+              COALESCE(message, title, '') AS message, title,
               acknowledged_at AS "acknowledgedAt", resolved_at AS "resolvedAt",
               acknowledged_by AS "acknowledgedBy", resolved_by AS "resolvedBy",
-              COALESCE(occurred_at, created_at) AS "occurredAt", metadata, details, created_at AS "createdAt"
+              COALESCE(occurred_at, created_at) AS "occurredAt", metadata, created_at AS "createdAt"
          FROM geoventra.alerts WHERE organisation_id = $1 AND id = $2`,
       [organisationId, alertId],
     );
@@ -74,7 +74,7 @@ export class AlertService {
               acknowledged_at = COALESCE(acknowledged_at, now()),
               metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('acknowledgeNote', $4::text)
         WHERE organisation_id = $1 AND id = $2
-      RETURNING id, vehicle_id AS "vehicleId", COALESCE(alert_type, type) AS "alertType", severity, status,
+      RETURNING id, vehicle_id AS "vehicleId", type AS "alertType", severity, status,
                 COALESCE(message, title, '') AS message, acknowledged_at AS "acknowledgedAt", resolved_at AS "resolvedAt",
                 acknowledged_by AS "acknowledgedBy", COALESCE(occurred_at, created_at) AS "occurredAt"`,
       [organisationId, alertId, input.acknowledgedBy, input.note ?? null],
@@ -95,7 +95,7 @@ export class AlertService {
               resolved_at = COALESCE(resolved_at, now()),
               metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('resolveNote', $4::text)
         WHERE organisation_id = $1 AND id = $2
-      RETURNING id, vehicle_id AS "vehicleId", COALESCE(alert_type, type) AS "alertType", severity, status,
+      RETURNING id, vehicle_id AS "vehicleId", type AS "alertType", severity, status,
                 COALESCE(message, title, '') AS message, acknowledged_at AS "acknowledgedAt", resolved_at AS "resolvedAt",
                 resolved_by AS "resolvedBy", COALESCE(occurred_at, created_at) AS "occurredAt"`,
       [organisationId, alertId, input.resolvedBy, input.note ?? null],
@@ -114,7 +114,7 @@ export class AlertService {
           SET severity = $3,
               metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('escalatedBy', $4::text)
         WHERE organisation_id = $1 AND id = $2
-      RETURNING id, vehicle_id AS "vehicleId", COALESCE(alert_type, type) AS "alertType", severity, status,
+      RETURNING id, vehicle_id AS "vehicleId", type AS "alertType", severity, status,
                 COALESCE(message, title, '') AS message, acknowledged_at AS "acknowledgedAt", resolved_at AS "resolvedAt",
                 COALESCE(occurred_at, created_at) AS "occurredAt"`,
       [organisationId, alertId, input.priority, input.escalatedBy],
@@ -125,7 +125,7 @@ export class AlertService {
 
   async listByVehicleWithStatus(organisationId: string, vehicleId: string) {
     const rows = await this.database.query<any>(
-      `SELECT id, vehicle_id AS "vehicleId", COALESCE(alert_type, type) AS "alertType", severity, status,
+      `SELECT id, vehicle_id AS "vehicleId", type AS "alertType", severity, status,
               COALESCE(message, title, '') AS message, acknowledged_at AS "acknowledgedAt", resolved_at AS "resolvedAt",
               acknowledged_by AS "acknowledgedBy", COALESCE(occurred_at, created_at) AS "occurredAt"
          FROM geoventra.alerts WHERE organisation_id = $1 AND vehicle_id = $2
@@ -145,7 +145,7 @@ export class AlertService {
     const total = Number((countResult[0] as any)?.total ?? 0);
     const dataParams = [...params, pageSize, (page - 1) * pageSize];
     const rows = await this.database.query<any>(
-      `SELECT id, vehicle_id AS "vehicleId", COALESCE(alert_type, type) AS "alertType", severity, status,
+      `SELECT id, vehicle_id AS "vehicleId", type AS "alertType", severity, status,
               COALESCE(message, title, '') AS message, acknowledged_at AS "acknowledgedAt", resolved_at AS "resolvedAt",
               acknowledged_by AS "acknowledgedBy", COALESCE(occurred_at, created_at) AS "occurredAt"
          FROM geoventra.alerts WHERE ${where.join(' AND ')}

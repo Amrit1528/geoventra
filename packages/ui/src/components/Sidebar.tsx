@@ -23,6 +23,7 @@ import {
   CircleGauge,
   UserCog,
   Brain,
+  Activity,
 } from 'lucide-react';
 import { cn } from './Component';
 
@@ -63,6 +64,14 @@ export const SIDEBAR_NAV_ITEMS: readonly SidebarNavItem[] = [
   { label: 'Reports & Analytics', href: '/reports', icon: BarChart3, group: 'Business' },
   { label: 'Customers & Users', href: '/users', icon: UserCog, group: 'Business' },
   { label: 'Administration', href: '/admin', icon: ShieldCheck, group: 'Business' },
+  { label: 'External Integrations', href: '/admin/integrations', icon: ShieldCheck, group: 'Business' },
+  { label: 'Insights', href: '/insights', icon: BarChart3, group: 'Operations' },
+  { label: 'Scorecards', href: '/scorecards', icon: Gauge, group: 'Operations' },
+  { label: 'Delivery Tracking', href: '/delivery', icon: Route, group: 'Operations' },
+  { label: 'Billing', href: '/billing', icon: BarChart3, group: 'Business' },
+  { label: 'Partners', href: '/partners', icon: UserCog, group: 'Business' },
+  { label: 'Branding', href: '/branding', icon: ShieldCheck, group: 'Business' },
+  { label: 'Device Adapters', href: '/device-adapters', icon: Activity, group: 'Fleet' },
 ];
 
 export interface SidebarProps {

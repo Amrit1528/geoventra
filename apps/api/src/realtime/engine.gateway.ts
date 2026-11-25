@@ -17,6 +17,7 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import type { Server, Socket } from 'socket.io';
+import { Inject } from '@nestjs/common';
 import { EngineEventsService } from '../engine-diagnostics/engine-events.service.js';
 import { engineVehicleRoom, type EngineRealtimeEvent } from '@geoventra/contracts';
 
@@ -35,7 +36,7 @@ export class EngineGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(EngineGateway.name);
   private readonly unsubscribe: () => void;
 
-  constructor(private readonly events: EngineEventsService) {
+  constructor(@Inject(EngineEventsService) private readonly events: EngineEventsService) {
     this.unsubscribe = this.events.subscribe((event) => this.dispatch(event));
   }
 

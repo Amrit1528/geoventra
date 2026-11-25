@@ -18,6 +18,10 @@ function mapSummary(row: any): VehicleSummary {
     model: row.model ?? '',
     fuelType: row.fuel_type ?? row.fuelType ?? 'diesel',
     year: toNum(row.year),
+    vin: row.vin ?? '',
+    chassisNumber: row.chassis_number ?? row.chassisNumber ?? '',
+    engineNumber: row.engine_number ?? row.engineNumber ?? '',
+    ownership: row.ownership ?? 'company_owned',
     status: row.status ?? 'offline',
     odometerKm: toNum(row.odometer_km ?? row.odometerKm),
     engineHours: toNum(row.engine_hours ?? row.engineHours),
@@ -62,14 +66,14 @@ export class VehiclesService {
       else if (val === 'false' || val === '0' || val === 'inactive') { where.push(`v.active_flag = FALSE`); }
     }
     const search = (query.search ?? query.q ?? '').trim();
-    if (search) { where.push(`(v.registration_number ILIKE $${i} OR v.name ILIKE $${i} OR v.vin ILIKE $${i})`); params.push(`%${search}%`); i++; }
+    if (search) { where.push(`(v.registration_number ILIKE $${i} OR v.name ILIKE $${i} OR v.vin ILIKE $${i} OR v.chassis_number ILIKE $${i} OR v.engine_number ILIKE $${i})`); params.push(`%${search}%`); i++; }
 
     const countRows = await this.database.query(`SELECT COUNT(*)::int AS total FROM geoventra.vehicles v WHERE ${where.join(' AND ')}`, params);
     const total = Number((countRows[0] as any)?.total ?? 0);
     const rows = await this.database.query(
       `SELECT v.id, v.registration_number, v.name, v.category, v.manufacturer, v.model, v.fuel_type, v.year, v.status,
               v.odometer_km, v.engine_hours, v.maintenance_status, v.group_id, v.city, v.assigned_driver_id,
-              v.active_flag, v.vin, v.insurance_expiry, v.registration_expiry, v.notes, v.created_at,
+              v.active_flag, v.vin, v.chassis_number, v.engine_number, v.ownership, v.insurance_expiry, v.registration_expiry, v.notes, v.created_at,
               g.name AS group_name, d.name AS assigned_driver_name
        FROM geoventra.vehicles v
        LEFT JOIN geoventra.vehicle_groups g ON g.id = v.group_id
@@ -158,11 +162,14 @@ export class VehiclesService {
   }
 
   async create(organisationId: string, input: any): Promise<VehicleSummary> {
+    const manufacturer = input.manufacturer ?? '';
+    const model = input.model ?? '';
+    const name = (input.name ?? '').trim() || `${manufacturer} ${model}`.trim() || input.registrationNumber;
     const row = await this.database.queryOne<any>(
-      `INSERT INTO geoventra.vehicles (organisation_id, registration_number, name, category, manufacturer, model, fuel_type, year, vin, city, group_id, assigned_driver_id, status, odometer_km, engine_hours, maintenance_status, insurance_expiry, registration_expiry, notes, active_flag)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+      `INSERT INTO geoventra.vehicles (organisation_id, registration_number, name, category, manufacturer, model, fuel_type, year, vin, chassis_number, engine_number, ownership, city, group_id, assigned_driver_id, status, odometer_km, engine_hours, maintenance_status, insurance_expiry, registration_expiry, notes, active_flag)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
-      [organisationId, input.registrationNumber, input.name, input.category ?? 'car', input.manufacturer, input.model, input.fuelType ?? 'diesel', input.year ?? new Date().getFullYear(), input.vin ?? '', input.city ?? null, input.groupId ?? null, input.assignedDriverId ?? null, input.status ?? 'offline', input.odometerKm ?? 0, input.engineHours ?? 0, input.maintenanceStatus ?? 'ok', input.insuranceExpiry ?? null, input.registrationExpiry ?? null, input.notes ?? null, input.activeFlag ?? input.active_flag ?? true],
+      [organisationId, input.registrationNumber, name, input.category ?? 'car', manufacturer, model, input.fuelType ?? 'diesel', input.year ?? new Date().getFullYear(), input.vin ?? '', input.chassisNumber ?? '', input.engineNumber ?? '', input.ownership ?? 'company_owned', input.city ?? null, input.groupId ?? null, input.assignedDriverId ?? null, input.status ?? 'offline', input.odometerKm ?? 0, input.engineHours ?? 0, input.maintenanceStatus ?? 'ok', input.insuranceExpiry || null, input.registrationExpiry || null, input.notes ?? null, input.activeFlag ?? input.active_flag ?? true],
     );
     return mapSummary(row);
   }
@@ -173,7 +180,7 @@ export class VehiclesService {
     const fields: string[] = ['updated_at = now()'];
     const params: any[] = [];
     let i = 1;
-    const map: Record<string, string> = { registrationNumber: 'registration_number', fuelType: 'fuel_type', groupId: 'group_id', assignedDriverId: 'assigned_driver_id', odometerKm: 'odometer_km', engineHours: 'engine_hours', maintenanceStatus: 'maintenance_status', insuranceExpiry: 'insurance_expiry', registrationExpiry: 'registration_expiry', activeFlag: 'active_flag', active_flag: 'active_flag' };
+    const map: Record<string, string> = { registrationNumber: 'registration_number', fuelType: 'fuel_type', groupId: 'group_id', assignedDriverId: 'assigned_driver_id', odometerKm: 'odometer_km', engineHours: 'engine_hours', maintenanceStatus: 'maintenance_status', insuranceExpiry: 'insurance_expiry', registrationExpiry: 'registration_expiry', chassisNumber: 'chassis_number', engineNumber: 'engine_number', activeFlag: 'active_flag', active_flag: 'active_flag' };
     for (const [k, v] of Object.entries(input ?? {})) {
       if (v === undefined) continue;
       const col = map[k] ?? k;

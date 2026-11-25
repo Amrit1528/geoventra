@@ -13,6 +13,7 @@ export function fetchDrivers(query: DriversQuery = {}) {
   const activeFlag = query.active === 'active' ? true : query.active === 'inactive' ? false : undefined;
   return apiRequest<Paginated<any>>('/drivers', { query: { ...query, activeFlag } });
 }
+export function fetchDriver(id: string) { return apiRequest<any>(`/drivers/${encodeURIComponent(id)}`); }
 export function createDriver(body: any) { return apiRequest<any>('/drivers', { method: 'POST', body }); }
 export function updateDriver(id: string, body: any) { return apiRequest<any>(`/drivers/${id}`, { method: 'PATCH', body }); }
 export function setDriverStatus(id: string, activeFlag: boolean, reason?: string) { return apiRequest<any>(`/drivers/${id}/status`, { method: 'PATCH', body: { active_flag: activeFlag, reason } }); }

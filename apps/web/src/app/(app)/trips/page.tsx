@@ -7,10 +7,10 @@
 
 'use client';
 
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Route, Gauge, Timer, Milestone } from 'lucide-react';
+import { Route, Gauge, Timer, Milestone, RefreshCw } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -26,24 +26,48 @@ import {
   EmptyState,
 } from '@geoventra/ui';
 import { fetchTrips } from '@/lib/track-api';
+import { fetchVehicles } from '@/lib/vehicles-api';
 import { formatMetricValue, formatDateTime } from '@/lib/format';
 
 const PAGE_SIZE = 15;
 
 export default function TripsPage(): ReactElement {
   const [status, setStatus] = useState<'all' | 'active' | 'completed' | 'cancelled'>('all');
+  const [vehicleId, setVehicleId] = useState('all');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
 
+  // Keep the result list in step with what the operator types (the form submit still works).
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const vehiclesQuery = useQuery({
+    queryKey: ['vehicles', 'trip-filter'],
+    queryFn: () => fetchVehicles({ active: 'all', pageSize: 100 }),
+  });
+  const vehicleOptions = [
+    { value: 'all', label: 'All vehicles' },
+    ...(vehiclesQuery.data?.data ?? []).map((vehicle) => ({
+      value: vehicle.id,
+      label: `${vehicle.registrationNumber} · ${vehicle.name}`,
+    })),
+  ];
+
   const tripsQuery = useQuery({
-    queryKey: ['trips', status, query, from, to, page],
+    queryKey: ['trips', status, vehicleId, query, from, to, page],
     queryFn: ({ signal }) =>
       fetchTrips(
         {
           status: status === 'all' ? undefined : status,
+          vehicleId: vehicleId === 'all' ? undefined : vehicleId,
           search: query || undefined,
           from: from || undefined,
           to: to || undefined,
@@ -66,6 +90,11 @@ export default function TripsPage(): ReactElement {
       title="Trips & Routes"
       description="Every journey detected from ignition and movement — distance, speed, idle time, events and playback."
       breadcrumb={[{ label: 'Geoventra', href: '/' }, { label: 'Fleet Operations' }, { label: 'Trips & Routes' }]}
+      actions={
+        <Button variant="secondary" size="sm" disabled={tripsQuery.isFetching} onClick={() => void tripsQuery.refetch()}>
+          <RefreshCw size={14} className={tripsQuery.isFetching ? 'animate-spin' : ''} /> Refresh
+        </Button>
+      }
     >
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -104,6 +133,17 @@ export default function TripsPage(): ReactElement {
           ]}
         />
 
+        <Select
+          aria-label="Filter by vehicle"
+          data-testid="trips-vehicle-filter"
+          value={vehicleId}
+          onChange={(event) => {
+            setVehicleId(event.target.value);
+            setPage(1);
+          }}
+          options={vehicleOptions}
+        />
+
         <label className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
           From
           <input
@@ -132,7 +172,29 @@ export default function TripsPage(): ReactElement {
         </label>
 
         {meta ? <span className="text-[11px] font-semibold text-[var(--text-muted)]">{meta.total} trips</span> : null}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            setStatus('all');
+            setVehicleId('all');
+            setSearch('');
+            setQuery('');
+            setFrom('');
+            setTo('');
+            setPage(1);
+          }}
+        >
+          Reset filters
+        </Button>
       </div>
+
+      {tripsQuery.isError ? (
+        <Card><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-red-600">
+          <span>{(tripsQuery.error as any)?.message || 'Failed to load trips.'}</span>
+          <Button variant="secondary" size="sm" onClick={() => void tripsQuery.refetch()}>Retry</Button>
+        </CardContent></Card>
+      ) : null}
 
       {/* KPIs */}
       <section aria-label="Trip summary" className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -195,9 +257,14 @@ export default function TripsPage(): ReactElement {
                     <td className="px-3 py-2.5 text-right font-mono">{Math.round(trip.idleSeconds / 60)}m</td>
                     <td className="px-3 py-2.5 text-right font-mono">{trip.eventCount}</td>
                     <td className="px-3 py-2.5 text-right">
-                      <Link href={`/trips/${trip.id}`} className="text-xs font-semibold text-[var(--primary-500)] hover:underline">
-                        Open →
-                      </Link>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <Link href={`/trips/${trip.id}`} className="text-xs font-semibold text-[var(--primary-500)] hover:underline">
+                          Route →
+                        </Link>
+                        <Link href={`/tracking?vehicle=${encodeURIComponent(trip.vehicleId)}`} className="text-xs font-semibold text-[var(--primary-500)] hover:underline">
+                          Live map
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}

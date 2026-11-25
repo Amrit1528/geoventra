@@ -10,6 +10,7 @@ import {
   ExecutionContext,
   Injectable,
   UnauthorizedException,
+  Inject,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
@@ -25,8 +26,8 @@ export interface AuthenticatedRequest {
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
-    private readonly reflector: Reflector,
-    private readonly jwtService: JwtService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(JwtService) private readonly jwtService: JwtService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

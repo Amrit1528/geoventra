@@ -702,7 +702,7 @@ export class IntelligenceService {
       }
       data.engineVehicles = vehicles;
       data.faultVehicles = withFaults;
-    } else if (q.includes('fuel') || q.includes('consumption') || q.includes('refuel') || q.includes('tank') || q.includes('mileage')) {
+    } else if ((q.includes('fuel') || q.includes('consumption') || q.includes('refuel') || q.includes('tank') || q.includes('mileage')) && !q.includes('incomplete') && !q.includes('missing')) {
       intent = 'fuel';
       const fuel = await this.safe(() => this.fuel(organisationId, {}), null);
       if (!fuel) {
@@ -811,6 +811,80 @@ export class IntelligenceService {
           ORDER BY occurred_at DESC LIMIT 20`, [organisationId]), []);
       answer = alerts.length === 0 ? 'No theft or high-risk alerts found.' : `${alerts.length} theft/high-risk alert${alerts.length === 1 ? '' : 's'} found.`;
       data.alerts = alerts;
+    } else if (q.includes('utilization') || q.includes('underutilized') || q.includes('not used') || q.includes('unused')) {
+      intent = 'utilization';
+      const fleet = await this.fleet(organisationId, {});
+      const ranking = await this.vehicleRanking(organisationId, {});
+      const unused = ranking.data.filter((r: any) => Number(r.distanceKm ?? 0) === 0);
+      if (q.includes('underutilized') || q.includes('not used') || q.includes('unused')) {
+        answer = unused.length === 0
+          ? 'No vehicles with zero recorded distance in the selected period.'
+          : `${unused.length} vehicle${unused.length === 1 ? '' : 's'} show no recorded distance: ${unused.map((r: any) => r.registrationNumber).join(', ')}.`;
+      } else {
+        answer = `Fleet utilization is ${fleet.utilizationPercent}% (${fleet.moving} moving, ${fleet.idle} idle, ${fleet.offline} offline out of ${fleet.totalVehicles}).`;
+      }
+      data.fleet = fleet;
+      data.ranking = ranking.data;
+      data.unused = unused;
+    } else if (q.includes('cost') || q.includes('expense') || q.includes('expenditure')) {
+      intent = 'cost';
+      const costs = await this.costs(organisationId, {});
+      if (q.includes('highest') || q.includes('most expensive')) {
+        const top = [...(costs.perVehicle ?? [])].sort((a: any, b: any) => b.totalCost - a.totalCost).slice(0, 5);
+        answer = top.length === 0 ? 'No cost data available.' : `Highest-cost vehicles: ${top.map((v: any) => `${v.registrationNumber} (${v.totalCost})`).join(', ')}.`;
+        data.topCosts = top;
+      } else if (q.includes('per kilometre') || q.includes('per km')) {
+        answer = `Operating cost per km is ${costs.costPerKm} (fuel ${costs.fuelCostPerKm}, maintenance ${costs.maintenanceCostPerKm}).`;
+      } else {
+        answer = `Total operating cost ${costs.totalCost}: fuel ${costs.fuelCost}, maintenance ${costs.maintenanceCost}, over ${costs.distanceKm} km.`;
+      }
+      data.costs = costs;
+    } else if ((q.includes('fuel') && (q.includes('consum') || q.includes('expense') || q.includes('efficiency'))) && !q.includes('incomplete') && !q.includes('missing')) {
+      intent = 'fuel_detail';
+      const fuel = await this.fuel(organisationId, {});
+      if (q.includes('highest') || q.includes('excessive')) {
+        const top = [...(fuel.vehicleRanking ?? [])].sort((a: any, b: any) => (b.litres ?? 0) - (a.litres ?? 0)).slice(0, 5);
+        answer = top.length === 0 ? 'No fuel consumption data available.' : `Highest fuel consumption: ${top.map((v: any) => `${v.registrationNumber} (${v.litres} L)`).join(', ')}.`;
+        data.topFuel = top;
+      } else if (q.includes('monthly') || q.includes('expense')) {
+        answer = `Fuel expense period: ${fuel.totalLitres} litres, ${fuel.mileageKmPerL} km/l, ${fuel.refuelEvents} refuel events.`;
+      } else {
+        answer = `Fuel: ${fuel.totalLitres} L over ${fuel.totalDistanceKm} km (avg ${fuel.mileageKmPerL} km/l).`;
+      }
+      data.fuel = fuel;
+    } else if (q.includes('most') && (q.includes('distance') || q.includes('travel'))) {
+      intent = 'distance_ranking';
+      const ranking = await this.vehicleRanking(organisationId, {});
+      const top = ranking.data.slice(0, 5);
+      const bottom = [...ranking.data].sort((a: any, b: any) => a.distanceKm - b.distanceKm).slice(0, 5);
+      if (q.includes('least') || q.includes('lowest')) {
+        answer = `Lowest distance: ${bottom.map((v: any) => `${v.registrationNumber} (${v.distanceKm} km)`).join(', ')}.`;
+        data.vehicles = bottom;
+      } else {
+        answer = `Highest distance: ${top.map((v: any) => `${v.registrationNumber} (${v.distanceKm} km)`).join(', ')}.`;
+        data.vehicles = top;
+      }
+    } else if (q.includes('compare') && (q.includes('utilization') || q.includes('month'))) {
+      intent = 'utilization_compare';
+      const fleet = await this.fleet(organisationId, {});
+      answer = `Current utilization ${fleet.utilizationPercent}% vs previous period ${fleet.previousUtilizationPercent}% (change ${fleet.utilizationChangePercent}%).`;
+      data.fleet = fleet;
+    } else if (q.includes('incomplete fuel') || q.includes('missing fuel')) {
+      intent = 'fuel_data_quality';
+      const fuel = await this.fuel(organisationId, {});
+      const noData = (fuel.vehicleRanking ?? []).filter((v: any) => !v.litres || v.litres === 0);
+      answer = noData.length === 0 ? 'All vehicles have fuel data in the selected period.' : `${noData.length} vehicle${noData.length === 1 ? '' : 's'} have no fuel records: ${noData.map((v: any) => v.registrationNumber).join(', ')}.`;
+      data.noFuelData = noData;
+    } else if (q.includes('dispatch') || q.includes('pending request') || q.includes('available for dispatch')) {
+      intent = 'dispatch';
+      const dispatches = await this.safe(() => this.db.query<any>(
+        `SELECT id, request_number AS "requestNumber", status, priority, vehicle_id AS "vehicleId", driver_id AS "driverId", created_at AS "createdAt"
+           FROM geoventra.dispatch_requests WHERE organisation_id=$1 ORDER BY created_at DESC LIMIT 20`, [organisationId]), []);
+      const pending = dispatches.filter((d: any) => d.status === 'pending' || d.status === 'awaiting_assignment');
+      answer = dispatches.length === 0
+        ? 'No dispatch requests found.'
+        : `${dispatches.length} dispatch request${dispatches.length === 1 ? '' : 's'} (${pending.length} pending).`;
+      data.dispatches = dispatches;
     } else if (q.includes('anomal')) {
       intent = 'anomalies';
       const a = await this.anomalies(organisationId, {});

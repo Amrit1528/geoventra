@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach, type Mock } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import TrackingPage from './page';
 import { useAuthStore } from '@/lib/auth-store';
@@ -138,6 +138,22 @@ vi.mock('@/lib/auth-store', () => ({
 
 vi.mock('@/lib/track-api', () => ({
   fetchSnapshot: vi.fn(),
+  fetchTrips: vi.fn().mockResolvedValue({ data: [], meta: { total: 0 } }),
+  fetchTrail: vi.fn().mockResolvedValue({ data: [] }),
+  fetchTripPlayback: vi.fn().mockResolvedValue({ points: [], stops: [] }),
+  fetchGpsFreshness: vi.fn().mockResolvedValue({ minutes: 15 }),
+  fetchGeofenceAlerts: vi.fn().mockResolvedValue({ data: [] }),
+}));
+
+vi.mock('@/lib/vehicles-api', () => ({
+  fetchVehicleFullProfile: vi.fn().mockResolvedValue({
+    vehicle: {},
+    driver: null,
+    device: null,
+    insurance: [],
+    tripsSummary: null,
+  }),
+  updateVehicleGpsFreshness: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 vi.mock('@/lib/tracking-socket', () => ({
@@ -243,6 +259,54 @@ describe('Live Tracking page', () => {
     expect(screen.getByTestId('tracking-status-filter')).toBeInTheDocument();
     expect(screen.getByTestId('tracking-group-filter')).toBeInTheDocument();
     expect(screen.getByTestId('tracking-socket-status')).toBeInTheDocument();
+  });
+
+  // ── Vehicle detail panel ─────────────────────────────────────────────────
+
+  it('opens a scrollable, fully sectioned vehicle panel when a vehicle is selected', async () => {
+    (fetchSnapshot as Mock).mockResolvedValue(mockSnapshot([createPosition()]));
+
+    renderTrackingPage();
+    await screen.findByTestId('fleet-map');
+
+    const vehicleButton = screen.getAllByRole('button').find((button) =>
+      button.textContent?.includes('MH 12 AB 1234') && button.textContent?.includes('Speed:'),
+    );
+    expect(vehicleButton).toBeDefined();
+    fireEvent.click(vehicleButton!);
+
+    const drawer = await screen.findByTestId('vehicle-drawer');
+    const content = within(drawer).getByTestId('vehicle-drawer-content');
+
+    // The panel owns the scroll area instead of relying on page scrolling.
+    expect(content.className).toContain('overflow-y-auto');
+    expect(content.className).toContain('min-h-0');
+    expect(drawer.className).toContain('h-full');
+    expect(drawer.className).toContain('min-h-0');
+
+    // All detail groups stay reachable from the panel.
+    for (const section of ['Live telemetry', 'Device & driver', 'Insurance', 'Journey', 'GPS freshness', 'Raw data & position']) {
+      expect(within(drawer).getByText(section)).toBeInTheDocument();
+    }
+    expect(within(drawer).getByTestId('vehicle-drawer-nav')).toBeInTheDocument();
+  });
+
+  it('opens the mobile detail sheet and closes it from the backdrop', async () => {
+    (fetchSnapshot as Mock).mockResolvedValue(mockSnapshot([createPosition()]));
+
+    renderTrackingPage();
+    await screen.findByTestId('fleet-map');
+
+    const vehicleButton = screen.getAllByRole('button').find((button) =>
+      button.textContent?.includes('MH 12 AB 1234') && button.textContent?.includes('Speed:'),
+    );
+    fireEvent.click(vehicleButton!);
+
+    const sheet = await screen.findByTestId('vehicle-drawer-mobile');
+    expect(within(sheet).getByTestId('vehicle-drawer-content')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('mobile-details-backdrop'));
+    expect(screen.queryByTestId('vehicle-drawer-mobile')).not.toBeInTheDocument();
   });
 
   // ── Live position updates ──────────────────────────────────────────────

@@ -163,4 +163,18 @@ export class MaintenanceService {
       [organisationId]), []);
     return { data };
   }
+
+  async reminders(organisationId: string) {
+    const schedules = await this.safe(() => this.database.query<any>(
+      `SELECT s.id, s.vehicle_id AS "vehicleId", v.registration_number AS "vehicleRegistration", s.name, s.status, s.next_due_at AS "nextDueAt", s.next_due_km AS "nextDueKm"
+         FROM geoventra.service_schedules s LEFT JOIN geoventra.vehicles v ON v.id=s.vehicle_id
+        WHERE s.organisation_id=$1 AND s.status IN ('overdue','due_soon')
+        ORDER BY CASE s.status WHEN 'overdue' THEN 0 ELSE 1 END, s.next_due_at`, [organisationId]), []);
+    const certs = await this.safe(() => this.database.query<any>(
+      `SELECT vd.id, vd.vehicle_id AS "vehicleId", v.registration_number AS "vehicleRegistration", vd.document_type AS "documentType", vd.expiry_date AS "expiryDate"
+         FROM geoventra.vehicle_documents vd LEFT JOIN geoventra.vehicles v ON v.id=vd.vehicle_id
+        WHERE vd.organisation_id=$1 AND vd.expiry_date IS NOT NULL AND vd.expiry_date <= (now() + interval '30 days')
+        ORDER BY vd.expiry_date`, [organisationId]), []);
+    return { schedules, certificates: certs };
+  }
 }

@@ -7,7 +7,7 @@
  * the vehicles whose position changed since the previous batch.
  */
 
-import { Logger } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -44,8 +44,8 @@ export class TrackingGateway implements OnGatewayConnection, OnGatewayDisconnect
   private readonly unsubscribe: () => void;
 
   constructor(
-    private readonly events: TrackingEventBus,
-    private readonly jwtService: JwtService,
+    @Inject(TrackingEventBus) private readonly events: TrackingEventBus,
+    @Inject(JwtService) private readonly jwtService: JwtService,
   ) {
     this.unsubscribe = this.events.subscribe((event) => this.dispatch(event));
   }

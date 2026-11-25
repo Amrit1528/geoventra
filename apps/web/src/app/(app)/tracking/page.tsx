@@ -13,6 +13,7 @@ import {
   Maximize2,
   Minimize2,
   Navigation,
+  PanelRightOpen,
   Radio,
   Route,
   Search,
@@ -120,6 +121,16 @@ export default function TrackingPage(): ReactElement {
     const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMobileListOpen(false);
+      setMobilePanelOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   const snapshot = snapshotQuery.data;
@@ -301,6 +312,9 @@ export default function TrackingPage(): ReactElement {
           <p className="text-xs text-[var(--text-muted)]">Interactive live tracking · hover for summary · click for full vehicle intelligence</p>
         </div>
         <div className="flex items-center gap-2">
+          {selected ? (
+            <Button variant="secondary" size="sm" className="lg:hidden" onClick={() => setMobilePanelOpen(true)}><PanelRightOpen size={14} /> Details</Button>
+          ) : null}
           <Button variant="secondary" size="sm" className="lg:hidden" onClick={() => setMobileListOpen(true)}><SlidersHorizontal size={14} /> Vehicles</Button>
           <Button variant="secondary" size="sm" onClick={() => setFitSignal((v) => v + 1)}><Expand size={14} /> Fit fleet</Button>
           <Button variant="secondary" size="sm" onClick={() => setFitSelectedSignal((v) => v + 1)} disabled={!selectedId}><Focus size={14} /> Fit selected</Button>
@@ -310,7 +324,7 @@ export default function TrackingPage(): ReactElement {
 
       <div className="flex min-h-0 flex-1">
         {/* Left: Explorer — desktop: fixed-width panel; mobile: full-width bottom sheet */}
-        <div className="flex min-w-0 flex-col gap-3 overflow-hidden lg:w-[280px] lg:flex-none">
+        <div className="hidden min-w-0 flex-col gap-3 overflow-hidden lg:flex lg:w-[280px] lg:flex-none">
           
           {/* Map legend — collapsed disclosure */}
           <button
@@ -392,13 +406,13 @@ export default function TrackingPage(): ReactElement {
 
           </div>
 
-          {/* Right intelligence panel (desktop) */}
+          {/* Right intelligence panel (desktop column) */}
         {selected ? (
-          <div className="flex min-w-0 flex-col overflow-hidden lg:w-[320px] lg:flex-none">
+          <div className="hidden h-full min-h-0 min-w-0 flex-col overflow-hidden lg:flex lg:w-[360px] xl:w-[400px] lg:flex-none">
             <VehicleDrawer vehicle={selected} onClose={() => setSelectedId(null)} />
           </div>
         ) : (
-          <div className="flex min-w-0 flex-col items-center justify-center gap-3 border-l border-[var(--border)] bg-[var(--bg-card)] p-6 text-center lg:w-[320px] lg:flex-none">
+          <div className="hidden min-w-0 flex-col items-center justify-center gap-3 border-l border-[var(--border)] bg-[var(--bg-card)] p-6 text-center lg:flex lg:w-[360px] xl:w-[400px] lg:flex-none">
             <Navigation size={24} className="text-[var(--text-muted)]" />
             <p className="text-sm font-semibold text-[var(--text-primary)]">Select a vehicle</p>
             <p className="max-w-xs text-xs text-[var(--text-secondary)]">Hover a marker for a live summary, or click a vehicle on the map/list to open full in-map intelligence, telemetry, route and history.</p>
@@ -454,8 +468,33 @@ export default function TrackingPage(): ReactElement {
             </div>
           </div>
         ) : null}
+
+        {/* Mobile detail sheet — the desktop column is hidden below lg, so the
+            selected vehicle gets a full-height sheet with its own scroll area. */}
+        {mobilePanelOpen && selected ? (
+          <div className="fixed inset-0 z-30 lg:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-950/50"
+              aria-label="Close vehicle details sheet"
+              data-testid="mobile-details-backdrop"
+              onClick={() => setMobilePanelOpen(false)}
+            />
+            <div className="absolute inset-y-0 right-0 flex w-full max-w-[420px] flex-col shadow-2xl">
+              <VehicleDrawer
+                vehicle={selected}
+                onClose={() => { setSelectedId(null); setMobilePanelOpen(false); }}
+                className="border-l-0"
+                testId="vehicle-drawer-mobile"
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
-      <AiCopilot vehicleId={selectedId} />
+      <AiCopilot
+        vehicleId={selectedId}
+        className={selected ? 'lg:right-[400px] xl:right-[420px]' : undefined}
+      />
     </div>
   );
 }

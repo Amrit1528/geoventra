@@ -23,7 +23,7 @@ const BASE_QUICK_PROMPTS = [
   'Summarize fleet performance today.',
 ];
 
-export function AiCopilot({ vehicleId }: { vehicleId?: string | null }): ReactElement {
+export function AiCopilot({ vehicleId, className }: { vehicleId?: string | null; className?: string }): ReactElement {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -53,13 +53,13 @@ export function AiCopilot({ vehicleId }: { vehicleId?: string | null }): ReactEl
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label="Open AI Fleet Copilot"
-        className="fixed bottom-5 right-5 z-[1001] flex h-12 w-12 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-teal-400"
+        className={cn('fixed bottom-5 right-5 z-[1001] flex h-12 w-12 items-center justify-center rounded-full bg-teal-600 text-white shadow-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-teal-400', className)}
       >
         <Bot size={22} />
       </button>
 
       {open ? (
-        <div className="fixed bottom-20 right-5 z-[1001] w-[360px] max-w-[calc(100vw-2.5rem)]">
+        <div className={cn('fixed bottom-20 right-5 z-[1001] w-[360px] max-w-[calc(100vw-2.5rem)]', className)}>
           <Card className="shadow-2xl">
             <CardContent className="flex flex-col gap-3 p-4">
               <div className="flex items-center justify-between">
