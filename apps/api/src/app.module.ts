@@ -46,6 +46,8 @@ import { ScorecardsModule } from './scorecards/scorecards.module.js';
 import { DeliveryModule } from './delivery/delivery.module.js';
 import { CommercialModule } from './commercial/commercial.module.js';
 import { DeviceAdaptersModule } from './device-adapters/device-adapters.module.js';
+import { UniversalTelemetryModule } from './universal-telemetry/universal-telemetry.module.js';
+import { IdleModule } from './idle/idle.module.js';
 
 @Module({
   imports: [
@@ -86,6 +88,8 @@ import { DeviceAdaptersModule } from './device-adapters/device-adapters.module.j
     DeliveryModule,
     CommercialModule,
     DeviceAdaptersModule,
+    UniversalTelemetryModule,
+    IdleModule,
   ],
 })
 export class AppModule {}

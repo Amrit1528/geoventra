@@ -13,3 +13,4 @@ export * from './adapters.js';
 export * from './demo-fleet.js';
 export * from './tracking.js';
 export * from './tpms.js';
+export * from './universal-telemetry.js';

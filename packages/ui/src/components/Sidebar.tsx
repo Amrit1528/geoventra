@@ -24,6 +24,7 @@ import {
   UserCog,
   Brain,
   Activity,
+  Clock,
 } from 'lucide-react';
 import { cn } from './Component';
 
@@ -47,6 +48,8 @@ export function isActiveRoute(currentPath: string | null | undefined, href: stri
 export const SIDEBAR_NAV_ITEMS: readonly SidebarNavItem[] = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard, group: 'Overview' },
   { label: 'Live Fleet', href: '/tracking', icon: Navigation, group: 'Overview' },
+  { label: 'Idle Intelligence', href: '/idle', icon: Clock, group: 'Overview' },
+  { label: 'Movement History', href: '/history', icon: Clock, group: 'Overview' },
   { label: 'Alerts & Incidents', href: '/alerts', icon: Bell, group: 'Overview' },
 
   { label: 'Vehicles & Assets', href: '/vehicles', icon: Truck, group: 'Fleet Operations' },

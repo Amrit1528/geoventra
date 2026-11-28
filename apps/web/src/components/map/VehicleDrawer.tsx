@@ -31,6 +31,7 @@ import {
 import { Badge, badgeVariantForSeverity, Button, cn, Card, CardContent } from '@geoventra/ui';
 import type { LivePosition } from '@geoventra/contracts';
 import { fetchTrips } from '@/lib/track-api';
+import * as idleApi from '@/lib/idle-api';
 import { fetchVehicleFullProfile, updateVehicleGpsFreshness } from '@/lib/vehicles-api';
 import { fetchGpsFreshness } from '@/lib/track-api';
 import { formatDateTime, formatRelativeTime, formatMetricValue, formatSpeedKph } from '@/lib/format';
@@ -74,6 +75,13 @@ function VehicleDrawerContent({ vehicle, onClose, className, testId }: { vehicle
     queryFn: () => fetchTrips({ vehicleId: vehicle.vehicleId }, undefined),
     enabled: Boolean(vehicle.vehicleId),
   });
+  const idleQuery = useQuery({
+    queryKey: ['idle-current', vehicle.vehicleId],
+    queryFn: () => idleApi.fetchCurrentIdle(vehicle.vehicleId),
+    enabled: Boolean(vehicle.vehicleId),
+    refetchInterval: 30000,
+  });
+  const idle = idleQuery.data;
   const trips = tripsQuery.data?.data ?? [];
   const tripsMeta = tripsQuery.data?.meta;
 
@@ -209,7 +217,18 @@ function VehicleDrawerContent({ vehicle, onClose, className, testId }: { vehicle
             <Stat icon={<Clock size={14} aria-hidden="true" />} label="Position age" value={Number.isFinite(vehicle.ageSeconds) ? `${Math.round(vehicle.ageSeconds)} s` : 'Unavailable'} />
           </div>
           <div className="mt-3 border-t border-[var(--border)] pt-2 text-xs">
-            <Field label="Location" value={vehicle.city || (vehicle.latitude !== null && vehicle.longitude !== null ? `${vehicle.latitude.toFixed(4)}, ${vehicle.longitude.toFixed(4)}` : 'No GPS fix')} />
+            <Field label="Location" value={vehicle.city || (vehicle.stationarySince ? (idle?.resolvedLocation ?? 'Stationary') : (vehicle.latitude !== null && vehicle.longitude !== null ? `${vehicle.latitude.toFixed(4)}, ${vehicle.longitude.toFixed(4)}` : 'No GPS fix'))} />
+            {vehicle.stationarySince ? (
+              <Field label="Stationary since" value={formatDateTime(vehicle.stationarySince)} />
+            ) : null}
+            {idle ? (
+              <>
+                <Field label="Idle location" value={idle.resolvedLocation ?? 'Unavailable'} />
+                <Field label="Idle started" value={idle.startTime ? formatDateTime(idle.startTime) : 'Unavailable'} />
+                <Field label="Idle duration" value={idle.durationLabel ?? 'Unavailable'} />
+                <Field label="Idle status" value={idle.status ?? 'Idle'} />
+              </>
+            ) : null}
           </div>
         </Section>
 

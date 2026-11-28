@@ -38,6 +38,10 @@ export function fetchTrail(vehicleId: string, limit = 500, signal?: AbortSignal)
   );
 }
 
+export function fetchVehicleHistory(vehicleId: string, from?: string, to?: string, signal?: AbortSignal) {
+  return apiRequest<any>(`/tracking/vehicles/${encodeURIComponent(vehicleId)}/history`, { query: { from, to, pageSize: 500 }, signal });
+}
+
 // ── Trips ────────────────────────────────────────────────────────────────────
 
 export interface TripsQuery {

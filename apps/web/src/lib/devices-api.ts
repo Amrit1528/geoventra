@@ -153,3 +153,15 @@ export function recordDeviceSensor(id: string, body: Record<string, unknown>) {
 export function fetchDeviceEvents(id: string, limit = 100) {
   return apiRequest<any[]>(`/devices/${encodeURIComponent(id)}/events`, { query: { limit } as any });
 }
+
+export function fetchUniversalCapabilities() {
+  return apiRequest<any[]>('/universal-telemetry/capabilities');
+}
+
+export function fetchDeviceCapabilities(id: string) {
+  return apiRequest<any[]>(`/universal-telemetry/devices/${encodeURIComponent(id)}/capabilities`);
+}
+
+export function ingestUniversalTelemetry(id: string, body: Record<string, unknown>) {
+  return apiRequest<any>(`/universal-telemetry/ingest/${encodeURIComponent(id)}`, { method: 'POST', body });
+}

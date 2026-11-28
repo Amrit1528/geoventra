@@ -10,6 +10,7 @@ import {
   fetchDevice,
   fetchDeviceAlarms,
   fetchDeviceBattery,
+  fetchDeviceCapabilities,
   fetchDeviceCommands,
   fetchDeviceConfiguration,
   fetchDeviceEvents,
@@ -19,7 +20,7 @@ import {
   fetchDeviceTelemetry,
 } from '@/lib/devices-api';
 
-type Tab = 'overview' | 'config' | 'commands' | 'telemetry' | 'battery' | 'sensors' | 'events';
+type Tab = 'overview' | 'config' | 'commands' | 'telemetry' | 'capabilities' | 'battery' | 'sensors' | 'events';
 
 export default function DeviceDetailPage(): ReactElement {
   const params = useParams<{ id: string }>();
@@ -30,6 +31,7 @@ export default function DeviceDetailPage(): ReactElement {
   const configQuery = useQuery({ queryKey: ['device-config', id], queryFn: () => fetchDeviceConfiguration(id), enabled: Boolean(id) && tab === 'config' });
   const commandsQuery = useQuery({ queryKey: ['device-commands', id], queryFn: () => fetchDeviceCommands(id), enabled: Boolean(id) && tab === 'commands' });
   const telemetryQuery = useQuery({ queryKey: ['device-telemetry', id], queryFn: () => fetchDeviceTelemetry(id), enabled: Boolean(id) && tab === 'telemetry' });
+  const capabilitiesQuery = useQuery({ queryKey: ['device-capabilities', id], queryFn: () => fetchDeviceCapabilities(id), enabled: Boolean(id) && tab === 'capabilities' });
   const alarmsQuery = useQuery({ queryKey: ['device-alarms', id], queryFn: () => fetchDeviceAlarms(id), enabled: Boolean(id) && tab === 'overview' });
   const firmwareQuery = useQuery({ queryKey: ['device-firmware', id], queryFn: () => fetchDeviceFirmware(id), enabled: Boolean(id) && tab === 'overview' });
   const healthQuery = useQuery({ queryKey: ['device-health', id], queryFn: () => fetchDeviceHealth(id), enabled: Boolean(id) && tab === 'overview' });
@@ -59,7 +61,7 @@ export default function DeviceDetailPage(): ReactElement {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {(['overview','config','commands','telemetry','battery','sensors','events'] as Tab[]).map((t) => (
+        {(['overview','config','commands','telemetry','capabilities','battery','sensors','events'] as Tab[]).map((t) => (
           <Button key={t} variant={tab === t ? 'primary' : 'secondary'} size="sm" onClick={() => setTab(t)}>{t.charAt(0).toUpperCase() + t.slice(1)}</Button>
         ))}
       </div>
@@ -159,6 +161,25 @@ export default function DeviceDetailPage(): ReactElement {
                 ))}
               </ul>
             ) : (!telemetryQuery.isLoading ? <EmptyState title="No telemetry" description="Device telemetry will appear here." icon={<Radio size={24} />} /> : null)}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {tab === 'capabilities' ? (
+        <Card>
+          <CardHeader><CardTitle as="h2">Device capabilities</CardTitle></CardHeader>
+          <CardContent>
+            {capabilitiesQuery.isLoading ? <LoadingPanel label="Loading capabilities…" /> : null}
+            {Array.isArray(capabilitiesQuery.data) && capabilitiesQuery.data.length ? (
+              <ul className="text-sm space-y-2">
+                {capabilitiesQuery.data.map((c: any) => (
+                  <li key={c.capability} className="rounded-lg border border-[var(--border)] p-2">
+                    <div className="font-medium">{c.capability}</div>
+                    <div className="text-xs text-[var(--text-muted)]">{c.enabled ? 'Enabled' : 'Disabled'} · {c.unit ?? 'no unit'}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : (!capabilitiesQuery.isLoading ? <EmptyState title="No capabilities" description="Capabilities will appear after onboarding or telemetry discovery." icon={<Cpu size={24} />} /> : null)}
           </CardContent>
         </Card>
       ) : null}

@@ -14,10 +14,35 @@ export default function ScorecardsPage(): ReactElement {
   return (
     <PageLayout title="Driver & vehicle scorecards" description="Scores calculated from real trip, driving and telemetry records.">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard icon={<Award size={18} />} label="Scorecards" value={String(rows.length)} unit="computed" />
-        <KpiCard icon={<Gauge size={18} />} label="Average score" value={avgScore.toFixed(1)} unit="out of 100" tone="positive" />
-        <KpiCard icon={<Award size={18} />} label="Top score" value={topScore.toFixed(1)} unit="best performer" />
-        <KpiCard icon={<Gauge size={18} />} label="Entities" value={String(new Set(rows.map((r: any) => r.entity_id)).size)} unit="tracked" />
+        <KpiCard
+          icon={<Award size={18} />}
+          label="Scorecards"
+          value={String(rows.length)}
+          unit="computed"
+          onClick={() => alert('Scorecards computed: ' + rows.length)}
+        />
+        <KpiCard
+          icon={<Gauge size={18} />}
+          label="Average score"
+          value={avgScore.toFixed(1)}
+          unit="out of 100"
+          tone="positive"
+          onClick={() => alert('Average score: ' + avgScore.toFixed(1))}
+        />
+        <KpiCard
+          icon={<Award size={18} />}
+          label="Top score"
+          value={topScore.toFixed(1)}
+          unit="best performer"
+          onClick={() => alert('Top score: ' + topScore.toFixed(1))}
+        />
+        <KpiCard
+          icon={<Gauge size={18} />}
+          label="Entities"
+          value={String(new Set(rows.map((r: any) => r.entity_id)).size)}
+          unit="tracked"
+          onClick={() => alert('Entities tracked: ' + new Set(rows.map((r: any) => r.entity_id)).size)}
+        />
       </div>
 
       <Card>
@@ -30,7 +55,11 @@ export default function ScorecardsPage(): ReactElement {
             {rows.map((r: any) => {
               const score = Number(r.overall_score ?? 0);
               return (
-                <div key={r.id} className="rounded-lg border border-[var(--border)] p-3">
+                <div
+  key={r.id}
+  className="rounded-lg border border-[var(--border)] p-3 hover:bg-[var(--bg-surface)] transition-colors cursor-pointer"
+  onClick={() => alert('Entity: ' + r.entity_type + ' - Score: ' + score)}
+>
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="font-medium text-[var(--text-primary)]">{r.entity_type} · {String(r.entity_id).slice(0, 8)}</div>

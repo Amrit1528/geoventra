@@ -25,6 +25,7 @@ import { TrackingEventBus } from './tracking-events.service.js';
 import { TripsService } from '../trips/trips.service.js';
 import { GeofencesService } from '../geofences/geofences.service.js';
 import { RoutingService } from './routing.service.js';
+import { IdleService } from '../idle/idle.service.js';
 
 export interface IngestResult {
   accepted: number;
@@ -69,6 +70,7 @@ export class TrackingService {
     private readonly tripsService: TripsService,
     private readonly geofencesService: GeofencesService,
     private readonly routing: RoutingService,
+    private readonly idleService: IdleService,
   ) {}
 
   /** Resolve a tracker serial to the vehicle it is bound to (tenant derived from the device). */
@@ -175,6 +177,21 @@ export class TrackingService {
 
         // Persist GPS and LiveStatus (existing logic)
         await this.persist(binding.organisationId, binding.vehicleId, binding.deviceUuid, event);
+
+        // Idle intelligence: open/close idle events based on movement.
+        await this.idleService
+          .handleSample({
+            organisationId: binding.organisationId,
+            vehicleId: binding.vehicleId,
+            deviceId: binding.deviceUuid,
+            driverId: null,
+            latitude: event.latitude,
+            longitude: event.longitude,
+            speedKph: event.speedKph,
+            ignition: event.ignition,
+            recordedAt: event.recordedAt,
+          })
+          .catch((error: Error) => this.logger.warn(`Idle detection failed for ${binding.vehicleId}: ${error.message}`));
 
         // Run the side effects: trip detection and geofence evaluation. Failures are
         // logged but never fail the ingest — a vehicle must keep reporting positions.
@@ -395,7 +412,8 @@ export class TrackingService {
                            AND a.status IN ('open', 'acknowledged')), 0) AS open_alert_count,
               dev.device_serial                 AS device_serial,
               dev.device_status                 AS device_status,
-              s.last_recorded_at                   AS last_recorded_at
+              s.last_recorded_at                   AS last_recorded_at,
+              s.stationary_since                   AS stationary_since
          FROM geoventra.vehicles v
          LEFT JOIN geoventra.vehicle_live_status s ON s.vehicle_id = v.id
          LEFT JOIN LATERAL (
@@ -456,7 +474,8 @@ export class TrackingService {
                            AND a.status IN ('open', 'acknowledged')), 0) AS open_alert_count,
               dev.device_serial                 AS device_serial,
               dev.device_status                 AS device_status,
-              s.last_recorded_at                   AS last_recorded_at
+              s.last_recorded_at                   AS last_recorded_at,
+              s.stationary_since                   AS stationary_since
          FROM geoventra.vehicles v
          JOIN geoventra.vehicle_live_status s ON s.vehicle_id = v.id
          LEFT JOIN LATERAL (
@@ -1025,6 +1044,7 @@ interface LiveStatusRow {
   device_serial: string | null;
   device_status: string | null;
   last_recorded_at: Date | null;
+  stationary_since: Date | null;
 }
 
 /** Map a live-status row onto the shared LivePosition contract.
@@ -1078,6 +1098,7 @@ function mapLiveStatusRow(row: LiveStatusRow, now: number): LivePosition {
     deviceStatus: row.device_status,
     recordedAt,
     ageSeconds,
+    stationarySince: row.stationary_since ? row.stationary_since.toISOString() : null,
   };
 }
 

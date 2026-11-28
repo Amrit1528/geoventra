@@ -369,6 +369,8 @@ export interface LivePosition {
   deviceStatus: string | null;
   recordedAt: string;
   ageSeconds: number;
+  /** ISO timestamp when the vehicle became stationary, if known. */
+  stationarySince?: string | null;
 }
 
 export interface TrackingSnapshot {
